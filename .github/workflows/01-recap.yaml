@@ -1,0 +1,14 @@
+on:
+  workflow_dispatch:
+      inputs:
+          name:
+            description: "Name"
+            default: "Mehak"
+            required: true 
+          city:
+            description: "City"
+            default: "Baraut"
+            required: true
+          country:
+            default: "India"
+            required: true

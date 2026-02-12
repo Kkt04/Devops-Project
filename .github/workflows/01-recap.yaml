@@ -1,4 +1,4 @@
-name: Hello world
+name: Hello Guys
 on:
   workflow_dispatch:
     inputs:
@@ -7,7 +7,7 @@ on:
         default: "Kalash"
         required: true
       city:
-        # description: "City"
+        description: "City"
         default: "Jamshedpur"
         required: true
       country:
@@ -26,3 +26,8 @@ jobs:
         uses: actions/checkout@v4
       - name: List Files
         run: ls -la
+  # weather:
+  #   runs-on: ubuntu-latest 
+  #   steps:
+  #     - name: 
+  #       run: 

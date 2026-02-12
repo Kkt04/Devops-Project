@@ -12,3 +12,15 @@ on:
           country:
             default: "India"
             required: true
+jobs:
+  hello-world:
+    runs-on: ubuntu-latest 
+    steps:
+      - name: Say Hello 
+        run: echo "Hello ${{ github.event.input.name }}"
+      - name: List Files 
+        run: ls -la 
+      - name: Checkout 
+        uses: actions/checkout@4 
+      - name: List Files 
+        run: ls -la

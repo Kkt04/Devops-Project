@@ -26,3 +26,31 @@ aws s3api create-bucket \
     --create-bucket-configuration LocationConstraint="${AWS_DEFAULT_REGION}"
 
 echo "Bucket ${BUCKET_NAME} created successfully."
+
+
+# 🔑 AKIA vs ASIA (Easy Words)
+# 🟢 AKIA
+
+# Permanent key
+
+# Does NOT expire on its own
+
+# Like giving someone your house key 🔑
+
+# If leaked → they can enter anytime until you change it
+
+# 🔵 ASIA
+
+# Temporary key
+
+# Expires automatically (like after 1 hour)
+
+# Like giving someone a visitor pass 🪪
+
+# After time is over → it stops working
+
+# 🧠 One-line Difference
+
+# AKIA = permanent access
+
+# ASIA = temporary access

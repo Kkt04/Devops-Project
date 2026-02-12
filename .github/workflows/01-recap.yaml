@@ -3,11 +3,11 @@ on:
       inputs:
           name:
             description: "Name"
-            default: "Mehak"
+            default: "Kalash"
             required: true 
           city:
             description: "City"
-            default: "Baraut"
+            default: "Jamshedpur"
             required: true
           country:
             default: "India"

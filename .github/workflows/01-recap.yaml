@@ -1,26 +1,30 @@
 on:
   workflow_dispatch:
-      inputs:
-          name:
-            description: "Name"
-            default: "Kalash"
-            required: true 
-          city:
-            description: "City"
-            default: "Jamshedpur"
-            required: true
-          country:
-            default: "India"
-            required: true
+    inputs:
+      name:
+        description: "Name"
+        default: "Kalash"
+        required: true
+      city:
+        description: "City"
+        default: "Jamshedpur"
+        required: true
+      country:
+        default: "India"
+        required: true
+
 jobs:
   hello-world:
-    runs-on: ubuntu-latest 
+    runs-on: ubuntu-latest
     steps:
-      - name: Say Hello 
+      - name: Say Hello
         run: echo "Hello ${{ github.event.inputs.name }}"
-      - name: List Files 
-        run: ls -la 
-      - name: Checkout 
-        uses: actions/checkout@4 
-      - name: List Files 
+
+      - name: List Files
+        run: ls -la
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: List Files
         run: ls -la

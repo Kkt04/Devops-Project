@@ -7,7 +7,7 @@ on:
         default: "Kalash"
         required: true
       city:
-        description: "City"
+        # description: "City"
         default: "Jamshedpur"
         required: true
       country:

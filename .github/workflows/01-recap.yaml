@@ -1,3 +1,4 @@
+name: Hello world
 on:
   workflow_dispatch:
     inputs:

@@ -17,7 +17,7 @@ let products = [
       name: 'Macramé Wall Hanging',
       description: 'Intricate macramé wall hanging crafted from 100% natural cotton rope. A stunning bohemian statement piece for any living space.',
       price: 85.00,
-      image: 'https://images.unsplash.com/photo-1604014137254-f9be42e6cbdf?w=600',
+      image: 'https://okhai.org/products/boho-handcrafted-small-macrame-wall-hanging-online?srsltid=AfmBOopJ3wTdn__si3DZY2xNiE8PMLtYlmu814m2nQZqc2QjELlp_6AS',
       category: 'Textiles',
       artisan: 'Luna Reyes',
       rating: 4.8,

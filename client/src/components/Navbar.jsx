@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingBag, Search } from 'lucide-react';
+import { ShoppingBag, Search, Sun, Moon } from 'lucide-react';
 import { useCart } from '../context/CartContext';
+import { useTheme } from '../context/ThemeContext';
 
 export default function Navbar() {
   const { count, setIsOpen } = useCart();
+  const { theme } = useTheme();
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
 
@@ -37,6 +39,9 @@ export default function Navbar() {
         <div className="navbar-actions">
           <Link to="/shop" className="nav-link">Shop</Link>
           <Link to="/artisans" className="nav-link">Artisans</Link>
+          <Link to="/theme" className="nav-link" title="Theme settings">
+            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
+          </Link>
           <button
             className="cart-btn"
             onClick={() => setIsOpen(true)}

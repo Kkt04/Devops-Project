@@ -9,7 +9,7 @@ export default function CartDrawer() {
   return (
     <>
       <div className="cart-overlay" onClick={() => setIsOpen(false)} />
-      <aside className="cart-drawer" aria-label="Shopping cart">
+      <aside className={`cart-drawer ${isOpen ? 'open' : ''}`} aria-label="Shopping cart">
         <div className="cart-header">
           <h2 className="cart-title">Your Cart</h2>
           <button className="close-btn" onClick={() => setIsOpen(false)} aria-label="Close cart">

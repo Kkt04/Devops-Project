@@ -29,7 +29,7 @@ export default function Shop() {
     if (search) params.search = search;
     if (featured) params.featured = 'true';
     setSearchParams(params);
-  }, [category, search, featured]);
+  }, [category, search, featured, setSearchParams]);
 
   const clearFilters = () => { setCategory(''); setSearch(''); setSort(''); setFeatured(false); };
   const hasFilters = category || search || sort || featured;
@@ -87,7 +87,7 @@ export default function Shop() {
             <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
               {category && <span style={{ background: 'var(--forest)', color: 'var(--cream)', padding: '5px 14px', borderRadius: 20, fontSize: '0.82rem', fontWeight: 500 }}>{category}</span>}
               {featured && <span style={{ background: 'var(--clay)', color: 'var(--cream)', padding: '5px 14px', borderRadius: 20, fontSize: '0.82rem', fontWeight: 500 }}>Featured</span>}
-              {search && <span style={{ background: 'var(--bark)', color: 'var(--cream)', padding: '5px 14px', borderRadius: 20, fontSize: '0.82rem', fontWeight: 500 }}>"{search}"</span>}
+              {search && <span style={{ background: 'var(--bark)', color: 'var(--cream)', padding: '5px 14px', borderRadius: 20, fontSize: '0.82rem', fontWeight: 500 }}>&ldquo;{search}&rdquo;</span>}
             </div>
           )}
           <p style={{ color: 'var(--stone)', fontSize: '0.9rem', marginBottom: 28 }}>

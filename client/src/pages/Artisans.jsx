@@ -3,7 +3,7 @@ import { ArrowRight, MapPin, Star, Package } from 'lucide-react';
 
 const ARTISANS = [
   { name:'Maya Okonkwo', craft:'Ceramics & Pottery', location:'Lagos, Nigeria', avatar:'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300', bio:'Trained at the Royal College of Art, Maya brings West African geometric traditions into her wheel-thrown forms. Each piece is a conversation between past and present.', rating:4.9, products:24, speciality:'Hand-thrown stoneware', years:12, featured:true },
-  { name:'Luna Reyes', craft:'Textile & Macramé', location:'Oaxaca, Mexico', avatar:'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=300', bio:'Luna learned the art of fiber from her grandmother in the Sierra Norte mountains. She blends ancestral knotting techniques with contemporary minimal aesthetics.', rating:4.8, products:18, speciality:'Natural fibre wall art', years:8, featured:true },
+  { name:'Luna Reyes', craft:'Textile & Macramé', location:'Oaxaca, Mexico', avatar:'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQHb3NNAX1Nom9vUFN8xe_Eh9CdSSJQD2AAtw&s', bio:'Luna learned the art of fiber from her grandmother in the Sierra Norte mountains. She blends ancestral knotting techniques with contemporary minimal aesthetics.', rating:4.8, products:18, speciality:'Natural fibre wall art', years:8, featured:true },
   { name:'Hana Fujimoto', craft:'Bladesmithing', location:'Kyoto, Japan', avatar:'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=300', bio:"Third-generation bladesmith trained under her father's watchful eye. Hana forges heirloom-quality kitchen knives that balance beauty with pure functional precision.", rating:5.0, products:11, speciality:'High-carbon kitchen knives', years:16, featured:true },
   { name:'Erik Lindqvist', craft:'Candle Making', location:'Gothenburg, Sweden', avatar:'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300', bio:"Sustainable candlemaker sourcing beeswax directly from Scandinavian apiaries. Erik's work celebrates slow light and the beauty of natural materials.", rating:4.7, products:32, speciality:'Beeswax candles', years:6, featured:false },
   { name:'James Abara', craft:'Leatherwork', location:'Accra, Ghana', avatar:'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300', bio:'James hand-stitches every journal, bag, and wallet from full-grain hides sourced within Ghana. His work develops extraordinary patina over decades of use.', rating:4.9, products:15, speciality:'Full-grain leather goods', years:10, featured:false },
@@ -91,7 +91,7 @@ export default function Artisans() {
           <div>
             <span className="banner-tag">Open applications</span>
             <h2 className="banner-title">Your craft deserves<br/>a global stage</h2>
-            <p className="banner-text">We're always looking for skilled artisans who pour genuine love into what they make. No listing fees, no algorithms — just a community that values craft.</p>
+            <p className="banner-text">We&apos;re always looking for skilled artisans who pour genuine love into what they make. No listing fees, no algorithms — just a community that values craft.</p>
             <a href="#" className="btn-light">Apply to Join <ArrowRight size={16}/></a>
           </div>
           <div className="banner-images">

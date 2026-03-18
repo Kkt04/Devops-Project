@@ -1,0 +1,24 @@
+{
+    "env": {
+      "node": true,
+      "es2021": true,
+      "jest": true
+    },
+    "extends": "eslint:recommended",
+    "parserOptions": {
+      "ecmaVersion": 12
+    },
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-console": "off"
+    }
+  }
+  ```
+  
+  ---
+  
+  ## `server/.env.example`
+  ```
+  PORT=5001
+  DATABASE_URL="file:./dev.db"
+  NODE_ENV=development

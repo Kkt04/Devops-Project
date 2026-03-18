@@ -1,36 +1,40 @@
-import { useState, useEffect } from 'react'
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { CartProvider } from './context/CartContext';
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import CartDrawer from './components/CartDrawer';
+import Toast from './components/Toast';
+import Home from './pages/Home';
+import Shop from './pages/Shop';
+import ProductDetail from './pages/ProductDetail';
+import Artisans from './pages/Artisans';
 
-function App() {
-    const [data, setData] = useState(null);
-
-    useEffect(() => {
-        const apiUrl = import.meta.env.VITE_API_URL || '';
-        fetch(`${apiUrl}/api/health`)
-            .then(res => res.json())
-            .then(data => setData(data))
-            .catch(err => console.error('Error fetching health check:', err));
-    }, []);
-
-    return (
-        <div className="container">
-            <h1>ShopSmart</h1>
-            <div className="card">
-                <h2>Backend Status</h2>
-                {data ? (
-                    <div>
-                        <p>Status: <span className="status-ok">{data.status}</span></p>
-                        <p>Message: {data.message}</p>
-                        <p>Timestamp: {data.timestamp}</p>
-                    </div>
-                ) : (
-                    <p>Loading backend status...</p>
-                )}
+export default function App() {
+  return (
+    <BrowserRouter>
+      <CartProvider>
+        <Navbar />
+        <CartDrawer />
+        <Toast />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/shop" element={<Shop />} />
+          <Route path="/product/:id" element={<ProductDetail />} />
+          <Route path="/artisans" element={<Artisans />} />
+          <Route path="*" element={
+            <div style={{ textAlign: 'center', padding: '120px 24px' }}>
+              <p style={{ fontSize: '4rem', marginBottom: 16 }}>🪴</p>
+              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', marginBottom: 12 }}>
+                Page not found
+              </h2>
+              <a href="/" className="btn-primary" style={{ display: 'inline-flex', marginTop: 8 }}>
+                Go Home
+              </a>
             </div>
-            <p className="hint">
-                Edit <code>src/App.jsx</code> and save to test HMR
-            </p>
-        </div>
-    )
+          } />
+        </Routes>
+        <Footer />
+      </CartProvider>
+    </BrowserRouter>
+  );
 }
-
-export default App

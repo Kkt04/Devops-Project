@@ -1,67 +1,70 @@
 #!/bin/bash
+set -e
 
-echo "Starting development setup..."
+echo "🌿 ArtisanHub — Development Setup"
+echo "=================================="
 
-# --------------------
-# Check Node.js
-# --------------------
-
-node -v >/dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo "Node.js not found. Installing..."
-    sudo yum install -y nodejs
-
-    node -v >/dev/null 2>&1
-    if [ $? -ne 0 ]; then
-        echo "Node.js installation failed."
-        exit 1
-    fi
+# ── Idempotent: Check Node.js ──────────────────────────────────
+if ! command -v node &>/dev/null; then
+  echo "❌ Node.js not found. Please install Node.js 20+ from https://nodejs.org"
+  exit 1
 fi
 
-echo "Node.js is available."
-
-# --------------------
-# Check npm
-# --------------------
-
-npm -v >/dev/null 2>&1
-if [ $? -ne 0 ]; then
-    echo "npm not available."
-    exit 1
+NODE_VER=$(node -v | cut -d. -f1 | tr -d 'v')
+if [ "$NODE_VER" -lt 18 ]; then
+  echo "❌ Node.js 18+ required (found $(node -v))"
+  exit 1
 fi
 
-echo "npm is available."
+echo "✅ Node.js $(node -v)"
+echo "✅ npm $(npm -v)"
 
-# --------------------
-# Client setup
-# --------------------
+# ── Server setup ───────────────────────────────────────────────
+if [ -d "server" ]; then
+  echo ""
+  echo "📦 Setting up server..."
+  cd server
 
-if [ -d client ]; then
-    cd client || exit 1
+  if [ ! -d node_modules ] || [ package.json -nt node_modules ]; then
+    npm install
+  else
+    echo "   node_modules up to date, skipping install"
+  fi
 
-    if [ ! -d node_modules ]; then
-        echo "Installing client dependencies..."
-        npm install
-    fi
+  if [ ! -f .env ]; then
+    cp .env.example .env
+    echo "   Created server/.env from .env.example"
+  fi
 
-    cd ..
+  echo "   Setting up database..."
+  npx prisma generate
+  npx prisma db push
+  node src/prisma/seed.js
+
+  cd ..
 fi
 
-# --------------------
-# Server setup
-# --------------------
+# ── Client setup ───────────────────────────────────────────────
+if [ -d "client" ]; then
+  echo ""
+  echo "📦 Setting up client..."
+  cd client
 
-if [ -d server ]; then
-    cd server || exit 1
+  if [ ! -d node_modules ] || [ package.json -nt node_modules ]; then
+    npm install
+  else
+    echo "   node_modules up to date, skipping install"
+  fi
 
-    if [ ! -d node_modules ]; then
-        echo "Installing server dependencies..."
-        npm install
-    fi
-
-    cd ..
+  cd ..
 fi
 
-echo "Setup completed successfully."
-exit 0
-Message Mehak Jain
+echo ""
+echo "✅ Setup complete!"
+echo ""
+echo "To start development:"
+echo "  Terminal 1: cd server && npm run dev"
+echo "  Terminal 2: cd client && npm run dev"
+echo ""
+echo "App:    http://localhost:5173"
+echo "API:    http://localhost:5001"

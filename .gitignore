@@ -1,7 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
-yarn.lock
 
 # Environment
 .env
@@ -30,6 +28,13 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
+
+# Test coverage
+coverage/
 
 # Prisma
 prisma/migrations/
+
+# PM2
+.pm2/

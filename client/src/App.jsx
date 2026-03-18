@@ -10,6 +10,7 @@ import Shop from './pages/Shop';
 import ProductDetail from './pages/ProductDetail';
 import Artisans from './pages/Artisans';
 import ThemeSettings from './pages/ThemeSettings';
+import Checkout from './pages/Checkout';
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="/product/:id" element={<ProductDetail />} />
             <Route path="/artisans" element={<Artisans />} />
             <Route path="/theme" element={<ThemeSettings />} />
+            <Route path="/checkout" element={<Checkout />} />
             <Route path="*" element={
               <div style={{ textAlign: 'center', padding: '120px 24px' }}>
                 <p style={{ fontSize: '4rem', marginBottom: 16 }}>🪴</p>

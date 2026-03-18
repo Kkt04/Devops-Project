@@ -1,10 +1,17 @@
 import { X, Minus, Plus, ShoppingBag, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 
 export default function CartDrawer() {
   const { items, total, isOpen, setIsOpen, removeItem, updateQty } = useCart();
+  const navigate = useNavigate();
 
   if (!isOpen) return null;
+
+  const handleCheckout = () => {
+    setIsOpen(false);
+    navigate('/checkout');
+  };
 
   return (
     <>
@@ -59,7 +66,7 @@ export default function CartDrawer() {
               <span className="cart-total-label">Total</span>
               <span className="cart-total-amount">${total.toFixed(2)}</span>
             </div>
-            <button className="checkout-btn">
+            <button className="checkout-btn" onClick={handleCheckout}>
               <ShoppingBag size={18} />
               Proceed to Checkout
               <ArrowRight size={16} />

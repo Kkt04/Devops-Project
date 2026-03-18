@@ -3,6 +3,13 @@
     "buildCommand": "npm run build",
     "outputDirectory": "dist",
     "framework": "vite",
+    "redirects": [
+      {
+        "source": "/api/:path*",
+        "destination": "https://artisan-hub-backend.onrender.com/api/:path*",
+        "permanent": false
+      }
+    ],
     "rewrites": [
       { "source": "/(.*)", "destination": "/index.html" }
     ]

@@ -17,17 +17,12 @@ export default function ProductCard({ product }) {
   const navigate = useNavigate();
 
   return (
-    <div
-      className="product-card"
-      onClick={() => navigate(`/product/${product.id}`)}
-    >
+    <div className="product-card" onClick={() => navigate(`/product/${product.id}`)}>
       <div className="product-card-img">
         <img src={product.image} alt={product.name} loading="lazy" />
-        {product.featured && (
-          <span className="product-card-badge">Featured</span>
-        )}
+        {product.featured && <span className="product-card-badge">Featured</span>}
         <div className="product-card-actions" onClick={e => e.stopPropagation()}>
-          <button className="action-btn" aria-label="Add to wishlist" title="Wishlist">
+          <button className="action-btn" aria-label="Wishlist" title="Wishlist">
             <Heart size={16} />
           </button>
           <button

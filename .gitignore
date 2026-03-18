@@ -1,40 +1,12 @@
-# Dependencies
 node_modules/
-
-# Environment
 .env
 .env.local
-.env.production
-
-# Database
-*.db
-*.db-journal
-
-# Build
 dist/
 build/
 .vite/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
+coverage/
+*.log
 .DS_Store
 Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Test coverage
-coverage/
-
-# Prisma
-prisma/migrations/
-
-# PM2
-.pm2/
+.vscode/
+.idea/

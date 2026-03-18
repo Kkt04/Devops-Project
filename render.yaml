@@ -4,25 +4,18 @@ services:
     env: node
     plan: free
     region: oregon
-    buildCommand: |
-      cd server &&
-      npm ci &&
-      npx prisma generate &&
-      npx prisma db push &&
-      node src/prisma/seed.js
+    buildCommand: cd server && npm install
     startCommand: cd server && npm start
     envVars:
       - key: PORT
         value: 10000
-      - key: DATABASE_URL
-        value: file:./dev.db
       - key: NODE_ENV
         value: production
 
   - type: static
     name: artisan-hub-frontend
     env: static
-    buildCommand: cd client && npm ci && npm run build
+    buildCommand: cd client && npm install && npm run build
     staticPublishPath: client/dist
     envVars:
       - key: VITE_API_URL

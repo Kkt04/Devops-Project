@@ -11,8 +11,7 @@ const HERO_IMAGES = [
   'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=500',
 ];
 
-const ARTISAN_AVATAR =
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120';
+const ARTISAN_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120';
 
 const BANNER_IMGS = [
   'https://images.unsplash.com/photo-1565193566173-7a0ee3dbe261?w=400',
@@ -31,17 +30,17 @@ export default function Home() {
   const categories = useCategories();
   const [activeCategory, setActiveCategory] = useState(null);
 
-  const { products: featured, loading: loadingFeatured } =
-    useProducts({ featured: true });
-  const { products: filtered, loading: loadingFiltered } =
-    useProducts(activeCategory ? { category: activeCategory } : {});
+  const { products: featured, loading: loadingFeatured } = useProducts({ featured: true });
+  const { products: filtered, loading: loadingFiltered } = useProducts(
+    activeCategory ? { category: activeCategory } : {}
+  );
 
   const displayProducts = activeCategory ? filtered : featured;
   const isLoading = activeCategory ? loadingFiltered : loadingFeatured;
 
   return (
     <main>
-      {/* ── Hero ── */}
+      {/* Hero */}
       <section className="hero">
         <div className="hero-content">
           <div className="hero-badge">
@@ -57,34 +56,24 @@ export default function Home() {
           </p>
           <div className="hero-actions">
             <Link to="/shop" className="btn-primary">
-              <Sparkles size={18} />
-              Explore the Collection
+              <Sparkles size={18} /> Explore the Collection
             </Link>
             <Link to="/artisans" className="btn-secondary">
               Meet the Makers <ArrowRight size={16} />
             </Link>
           </div>
           <div className="hero-stats">
-            <div>
-              <div className="stat-num">2,400+</div>
-              <div className="stat-label">Unique Products</div>
-            </div>
-            <div>
-              <div className="stat-num">380+</div>
-              <div className="stat-label">Master Artisans</div>
-            </div>
-            <div>
-              <div className="stat-num">52</div>
-              <div className="stat-label">Countries</div>
-            </div>
+            <div><div className="stat-num">2,400+</div><div className="stat-label">Unique Products</div></div>
+            <div><div className="stat-num">380+</div><div className="stat-label">Master Artisans</div></div>
+            <div><div className="stat-num">52</div><div className="stat-label">Countries</div></div>
           </div>
         </div>
 
         <div className="hero-visual">
           <div className="hero-img-grid">
-            <img className="img-main" src={HERO_IMAGES[0]} alt="Hand-thrown ceramic" />
-            <img className="img-top" src={HERO_IMAGES[1]} alt="Macramé wall hanging" />
-            <img className="img-bottom" src={HERO_IMAGES[2]} alt="Leather journal" />
+            <img className="img-main" src={HERO_IMAGES[0]} alt="Ceramic" />
+            <img className="img-top" src={HERO_IMAGES[1]} alt="Macramé" />
+            <img className="img-bottom" src={HERO_IMAGES[2]} alt="Journal" />
           </div>
           <div className="hero-float-card">
             <img className="float-avatar" src={ARTISAN_AVATAR} alt="Maya Okonkwo" />
@@ -97,7 +86,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Values ── */}
+      {/* Values */}
       <div className="container">
         <div className="values-strip">
           {VALUES.map(v => (
@@ -110,7 +99,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ── Categories ── */}
+      {/* Categories */}
       <section className="categories-section">
         <div className="container">
           <div className="section-header">
@@ -118,9 +107,7 @@ export default function Home() {
               <p className="section-eyebrow">Browse by craft</p>
               <h2 className="section-title">Shop by Category</h2>
             </div>
-            <Link to="/shop" className="section-link">
-              View all <ArrowRight size={16} />
-            </Link>
+            <Link to="/shop" className="section-link">View all <ArrowRight size={16} /></Link>
           </div>
           <div className="categories-grid">
             <button
@@ -142,7 +129,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Products ── */}
+      {/* Products */}
       <section className="products-section">
         <div className="container">
           <div className="section-header">
@@ -152,10 +139,7 @@ export default function Home() {
                 {activeCategory ? `${activeCategory} Collection` : 'Handpicked for You'}
               </h2>
             </div>
-            <Link
-              to={activeCategory ? `/shop?category=${activeCategory}` : '/shop'}
-              className="section-link"
-            >
+            <Link to={activeCategory ? `/shop?category=${activeCategory}` : '/shop'} className="section-link">
               See all <ArrowRight size={16} />
             </Link>
           </div>
@@ -166,9 +150,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="products-grid">
-              {displayProducts.slice(0, 8).map(p => (
-                <ProductCard key={p.id} product={p} />
-              ))}
+              {displayProducts.slice(0, 8).map(p => <ProductCard key={p.id} product={p} />)}
             </div>
           )}
 
@@ -181,23 +163,17 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Artisan Banner ── */}
+      {/* Artisan Banner */}
       <div className="container">
         <div className="artisan-banner">
           <div>
             <span className="banner-tag">Join our community</span>
-            <h2 className="banner-title">
-              Are you a maker?<br />Sell on ArtisanHub
-            </h2>
+            <h2 className="banner-title">Are you a maker?<br />Sell on ArtisanHub</h2>
             <p className="banner-text">
-              Join over 380 independent artisans selling their work to a global
-              audience who values craft, quality, and story. No listing fees.
-              Transparent pricing.
+              Join over 380 independent artisans selling their work to a global audience
+              who values craft, quality, and story. No listing fees. Transparent pricing.
             </p>
-            <a href="#" className="btn-light">
-              <Award size={18} />
-              Apply as an Artisan
-            </a>
+            <a href="#" className="btn-light"><Award size={18} /> Apply as an Artisan</a>
           </div>
           <div className="banner-images">
             {BANNER_IMGS.map((src, i) => (

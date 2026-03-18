@@ -12,11 +12,7 @@ export default function CartDrawer() {
       <aside className="cart-drawer" aria-label="Shopping cart">
         <div className="cart-header">
           <h2 className="cart-title">Your Cart</h2>
-          <button
-            className="close-btn"
-            onClick={() => setIsOpen(false)}
-            aria-label="Close cart"
-          >
+          <button className="close-btn" onClick={() => setIsOpen(false)} aria-label="Close cart">
             <X size={18} />
           </button>
         </div>
@@ -31,52 +27,27 @@ export default function CartDrawer() {
           ) : (
             items.map(item => (
               <div key={item.id} className="cart-item">
-                <img
-                  className="cart-item-img"
-                  src={item.image}
-                  alt={item.name}
-                />
+                <img className="cart-item-img" src={item.image} alt={item.name} />
                 <div className="cart-item-info">
                   <p className="cart-item-name">{item.name}</p>
                   <p className="cart-item-artisan">by {item.artisan}</p>
                   <div className="cart-item-qty">
-                    <button
-                      className="qty-btn"
-                      onClick={() => updateQty(item.id, item.quantity - 1)}
-                      aria-label="Decrease quantity"
-                    >
+                    <button className="qty-btn" onClick={() => updateQty(item.id, item.quantity - 1)} aria-label="Decrease">
                       <Minus size={12} />
                     </button>
                     <span className="qty-val">{item.quantity}</span>
-                    <button
-                      className="qty-btn"
-                      onClick={() => updateQty(item.id, item.quantity + 1)}
-                      aria-label="Increase quantity"
-                    >
+                    <button className="qty-btn" onClick={() => updateQty(item.id, item.quantity + 1)} aria-label="Increase">
                       <Plus size={12} />
                     </button>
                     <button
                       onClick={() => removeItem(item.id)}
-                      style={{
-                        marginLeft: 'auto',
-                        background: 'none',
-                        color: 'var(--stone)',
-                        fontSize: '0.78rem',
-                        padding: '2px 6px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontFamily: 'var(--font-body)'
-                      }}
-                      aria-label={`Remove ${item.name}`}
+                      style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--stone)', fontSize: '0.78rem', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer', fontFamily: 'var(--font-body)' }}
                     >
                       Remove
                     </button>
                   </div>
                 </div>
-                <span className="cart-item-price">
-                  ${(item.price * item.quantity).toFixed(2)}
-                </span>
+                <span className="cart-item-price">${(item.price * item.quantity).toFixed(2)}</span>
               </div>
             ))
           )}
@@ -93,12 +64,7 @@ export default function CartDrawer() {
               Proceed to Checkout
               <ArrowRight size={16} />
             </button>
-            <p style={{
-              textAlign: 'center',
-              fontSize: '0.78rem',
-              color: 'var(--stone)',
-              marginTop: '12px'
-            }}>
+            <p style={{ textAlign: 'center', fontSize: '0.78rem', color: 'var(--stone)', marginTop: 12 }}>
               Free shipping on orders over $100
             </p>
           </div>

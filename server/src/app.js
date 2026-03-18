@@ -17,7 +17,7 @@ app.use('/api/orders', orderRoutes);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    message: 'ArtisanHub Backend is running',
+    message: 'ArtisanHub backend is running',
     timestamp: new Date().toISOString()
   });
 });

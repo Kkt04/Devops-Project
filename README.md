@@ -39,4 +39,3 @@ cd client && npm test
 - Backend: Node.js, Express (no database)
 - Testing: Vitest + Testing Library / Jest + Supertest
 - CI/CD: GitHub Actions
-- Deploy: Render (backend), Vercel (frontend)

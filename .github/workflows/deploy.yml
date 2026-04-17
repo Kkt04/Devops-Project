@@ -135,16 +135,22 @@ jobs:
           retention-days: 1
 
       - name: Terraform Apply
-        run: terraform plan
+        run: terraform apply -auto-approve tfplan
         # Why: Actually creates/updates infrastructure
         # -auto-approve skips interactive prompt (needed for CI)
         
       - name: Save Terraform outputs
         id: tf-outputs
         run: |
-          echo "ECR_URL=$(terraform output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
-          echo "ECS_CLUSTER=$(terraform output -raw ecs_cluster_name)" >> $GITHUB_OUTPUT
-          echo "ECS_SERVICE=$(terraform output -raw ecs_service_name)" >> $GITHUB_OUTPUT
+          terraform output
+
+          ECR_URL=$(terraform output -raw ecr_repository_url)
+          ECS_CLUSTER=$(terraform output -raw ecs_cluster_name)
+          ECS_SERVICE=$(terraform output -raw ecs_service_name)
+
+          echo "ECR_URL=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "ECS_CLUSTER=$ECS_CLUSTER" >> $GITHUB_OUTPUT
+          echo "ECS_SERVICE=$ECS_SERVICE" >> $GITHUB_OUTPUT
 
     outputs:
       ecr_url: ${{ steps.tf-outputs.outputs.ECR_URL }}

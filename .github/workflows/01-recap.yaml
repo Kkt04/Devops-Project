@@ -1,3 +1,4 @@
+# .github/workflows/01-recap.yaml
 name: Hello Guys
 on:
   workflow_dispatch:
@@ -23,7 +24,6 @@ jobs:
       - name: List Files
         run: ls -la
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
       - name: List Files
         run: ls -la
-  

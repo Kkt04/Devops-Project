@@ -70,7 +70,7 @@ jobs:
 
       - name: Run client tests
         working-directory: client
-        run: npm test
+        run: npm run test
         
       - name: Upload client test report
         uses: actions/upload-artifact@v4

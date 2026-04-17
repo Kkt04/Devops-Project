@@ -92,18 +92,6 @@ resource "aws_ecr_lifecycle_policy" "app" {
   })
 }
 
-# ============ VPC & Networking ============
-# Use default VPC for simplicity
-data "aws_vpc" "default" {
-  default = true
-}
-
-data "aws_subnets" "default" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
-  }
-}
 
 # ============ Security Group for ECS ============
 resource "aws_security_group" "ecs_service" {

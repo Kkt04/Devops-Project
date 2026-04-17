@@ -135,7 +135,7 @@ jobs:
           retention-days: 1
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform plan
         # Why: Actually creates/updates infrastructure
         # -auto-approve skips interactive prompt (needed for CI)
         

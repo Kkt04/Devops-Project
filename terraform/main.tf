@@ -103,28 +103,7 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
-# ======================================================
-# IAM ROLE FOR ECS
-# ======================================================
-resource "aws_iam_role" "ecs_execution" {
-  name = "${var.project_name}-ecs-execution-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Service = "ecs-tasks.amazonaws.com"
-      }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_execution" {
-  role       = aws_iam_role.ecs_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
 
 # ======================================================
 # CLOUDWATCH LOGS
@@ -144,7 +123,7 @@ resource "aws_ecs_task_definition" "app" {
   cpu    = "256"
   memory = "512"
 
-  execution_role_arn = aws_iam_role.ecs_execution.arn
+  execution_role_arn = "arn:aws:iam::896673846525:role/LabRole"
 
   container_definitions = jsonencode([{
     name  = "${var.project_name}-backend"

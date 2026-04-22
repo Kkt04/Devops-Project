@@ -2,6 +2,7 @@
 
 Full-stack e-commerce platform. No database required — data lives in-memory on the server.
 
+
 ## Quick Start
 
 chmod +x dev-setup.sh && ./dev-setup.sh

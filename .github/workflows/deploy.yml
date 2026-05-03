@@ -66,7 +66,7 @@ jobs:
       - name: Install client dependencies
         run: |
           cd client
-          npm ci
+          npm ci --legacy-peer-deps
 
       - name: Run client unit & integration tests
         run: |
@@ -190,7 +190,7 @@ jobs:
       - name: Build React client
         run: |
           cd client
-          npm ci
+          npm ci --legacy-peer-deps
           VITE_API_URL="" npm run build
           echo "✅ Client built successfully"
 

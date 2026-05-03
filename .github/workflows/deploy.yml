@@ -1,165 +1,495 @@
-# ============================================================
-# GitHub Actions — Full CI/CD Pipeline
-# Builds Docker image → Pushes to ECR → Deploys via Terraform
-# AWS Academy Compatible (restricted LabRole)
+# ──────────────────────────────────────────────────────────
+# SnackyNerds — Unified CI/CD Pipeline
 #
-# NOTE:
-# Some steps are commented (NOT removed) because AWS Academy policy
-# explicitly denies ECR auth and resource creation during apply.
-# ============================================================
+# Workflow Order (matches rubric):
+#   Push/PR → Run Tests → Terraform Apply → Docker Build & Push
+#   → Deploy to ECS (Phase 3) + Deploy to EKS (Phase 4)
+# ──────────────────────────────────────────────────────────
 
-name: Deploy to AWS ECS
+name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [main, master, test]
+  pull_request:
+    branches: [main, master]
 
 env:
-  TF_VERSION: 1.14.8
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPO_NAME: snackynerds
+  ECS_CLUSTER_NAME: snackynerds-cluster
+  ECS_SERVICE_NAME: snackynerds-service
+  EKS_CLUSTER_NAME: snackynerds-eks
 
+# ──────────────────────────────────────────────────────────
+# PHASE 1 — Testing
+# ──────────────────────────────────────────────────────────
 jobs:
-  deploy:
-    name: Build & Deploy
+  test:
+    name: "Phase 1 — Run Tests"
     runs-on: ubuntu-latest
 
     steps:
-      # ── Step 1: Checkout code ──────────────────────────────
-      - name: Checkout Repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Step 2: Configure AWS credentials ──────────────────
-      - name: Configure AWS Credentials
+      # ── Node.js Setup ──
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "**/package-lock.json"
+
+      # ── Server Tests (Jest + JUnit Report) ──
+      - name: Install server dependencies
+        run: |
+          cd server
+          npm ci
+
+      - name: Run server unit & integration tests
+        run: |
+          cd server
+          npm test
+        env:
+          JEST_JUNIT_OUTPUT_DIR: ./reports
+          JEST_JUNIT_OUTPUT_NAME: junit.xml
+
+      - name: Upload server test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-report
+          path: server/reports/junit.xml
+          retention-days: 30
+
+      # ── Client Tests (Vitest + JUnit Report) ──
+      - name: Install client dependencies
+        run: |
+          cd client
+          npm ci
+
+      - name: Run client unit & integration tests
+        run: |
+          cd client
+          npx vitest run --reporter=default --reporter=junit --outputFile=reports/junit.xml
+
+      - name: Upload client test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-test-report
+          path: client/reports/junit.xml
+          retention-days: 30
+
+      # ── Client Lint & Build Verification ──
+      - name: Lint client
+        run: |
+          cd client
+          npm run lint
+
+      - name: Build client
+        run: |
+          cd client
+          npm run build
+
+  # ──────────────────────────────────────────────────────────
+  # PHASE 2 — Infrastructure Provisioning (Terraform)
+  # ──────────────────────────────────────────────────────────
+  terraform:
+    name: "Phase 2 — Terraform"
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    defaults:
+      run:
+        working-directory: infra/terraform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── AWS Credentials ──
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            us-east-1
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-
-      # ── Step 4: Login to Amazon ECR ───────────────────────
-      # COMMENTED: Fails due explicit deny on ecr:GetAuthorizationToken
-      #
-      # - name: Login to Amazon ECR
-      #   id: login-ecr
-      #   uses: aws-actions/amazon-ecr-login@v2
-
-
-      # ── Step 6: Build, Tag & Push Docker Image ─────────────
-      # COMMENTED: Depends on ECR login, blocked in AWS Academy
-      #
-      # - name: Build and Push Backend Image
-      #   id: build-backend
-      #   env:
-      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-      #     IMAGE_TAG:    ${{ github.sha }}
-      #   run: |
-      #     IMAGE_URI=$ECR_REGISTRY/devops-backend:$IMAGE_TAG
-      #     LATEST_URI=$ECR_REGISTRY/devops-backend:latest
-      #
-      #     echo "Building Docker image..."
-      #     docker build -t $IMAGE_URI -t $LATEST_URI ./backend
-      #
-      #     echo "Pushing image to ECR..."
-      #     docker push $IMAGE_URI
-      #     docker push $LATEST_URI
-      #
-      #     echo "✅ Docker image pushed: $IMAGE_URI"
-
-
-      # - name: Build and Push Frontend Image
-      #   id: build-frontend
-      #   env:
-      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-      #     IMAGE_TAG:    ${{ github.sha }}
-      #   run: |
-      #     IMAGE_URI=$ECR_REGISTRY/devops-frontend:$IMAGE_TAG
-      #     LATEST_URI=$ECR_REGISTRY/devops-frontend:latest
-      #
-      #     echo "Building Docker image..."
-      #     docker build -t $IMAGE_URI -t $LATEST_URI ./frontend
-      #
-      #     echo "Pushing image to ECR..."
-      #     docker push $IMAGE_URI
-      #     docker push $LATEST_URI
-      #
-      #     echo "✅ Docker image pushed: $IMAGE_URI"
-
-
-      # ── Step 7: Setup Terraform ───────────────────────────
+      # ── Terraform Setup ──
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
 
-      # ── Step 8: Terraform Version Check ──────────────────
-      - name: Terraform Version Check
-        working-directory: terraform
-        run: terraform version
-
-      # ── Step 9: Terraform Fmt Check ───────────────────────
-      - name: Terraform Fmt Check
-        working-directory: terraform
-        run: |
-          terraform fmt -check -recursive
-          echo "✅ Terraform formatting is valid"
-
-      # ── Step 10: Terraform Init ───────────────────────────
+      # ── Terraform Init ──
       - name: Terraform Init
-        working-directory: terraform
-        run: |
-          terraform init -upgrade -input=false || \
-          (rm -rf .terraform .terraform.lock.hcl && terraform init -upgrade -input=false)
-          echo "✅ Terraform initialized"
+        run: terraform init
 
-      # ── Step 11: Terraform Import Existing ECR ────────────
-      # COMMENTED: Fails because ECR repository access is denied
-      #
-      # - name: Terraform Import Existing ECR
-      #   working-directory: terraform
-      #   run: |
-      #     terraform import aws_ecr_repository.backend_repo devops-backend || true
-      #     terraform import aws_ecr_repository.frontend_repo devops-frontend || true
-      #     echo "✅ Existing ECR repository imported if present"
-
-
-      # ── Step 12: Terraform Validate ───────────────────────
+      # ── Terraform Validate ──
       - name: Terraform Validate
-        working-directory: terraform
-        run: |
-          terraform validate
-          echo "✅ Terraform configuration is valid"
+        run: terraform validate
 
-      # ── Step 13: Terraform Plan ───────────────────────────
+      # ── Terraform Plan ──
       - name: Terraform Plan
-        working-directory: terraform
+        run: terraform plan -out=tfplan
+
+      # ── Terraform Apply ──
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+  # ──────────────────────────────────────────────────────────
+  # PHASE 3 — Container Build & ECR Push
+  # ──────────────────────────────────────────────────────────
+  docker-build:
+    name: "Phase 3 — Docker Build & Push"
+    runs-on: ubuntu-latest
+    needs: terraform
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── AWS Credentials ──
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ── Get ECR URL from AWS directly ──
+      - name: Get ECR Repository URL
+        id: ecr-info
         run: |
-          terraform plan -input=false -out=tfplan
-          echo "✅ Terraform plan complete"
+          ECR_URL=$(aws ecr describe-repositories \
+            --repository-names ${{ env.ECR_REPO_NAME }} \
+            --region ${{ secrets.AWS_REGION }} \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+          echo "ecr_url=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "ECR URL: $ECR_URL"
 
+      # ── Login to ECR ──
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
 
-      # ── Step 14: Terraform Apply ──────────────────────────
-      # COMMENTED: Fails due explicit denies on CreateBucket,
-      # CreateRepository, CreateCluster, CreateSecurityGroup, etc.
-      #
-      # - name: Terraform Apply
-      #   working-directory: terraform
-      #   run: |
-      #     terraform apply -input=false -auto-approve tfplan
-      #     echo "✅ Infrastructure provisioned successfully"
+      # ── Build Client (React) for embedding in server ──
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "client/package-lock.json"
 
-
-      # ── Step 15: Print Deployment Summary ─────────────────
-      - name: Deployment Summary
+      - name: Build React client
         run: |
-          echo "============================================"
-          echo "  ✅ VALIDATION COMPLETE"
-          echo "============================================"
-          echo "  Region    : us-east-1"
-          echo "  Cluster   : devops-cluster"
-          echo "  Commit    : ${{ github.sha }}"
-          echo "  Status    : Terraform plan completed"
-          echo "============================================"
+          cd client
+          npm ci
+          VITE_API_URL="" npm run build
+          echo "✅ Client built successfully"
+
+      - name: Copy client build to server
+        run: |
+          mkdir -p server/public
+          cp -r client/dist/* server/public/
+          echo "✅ Client build copied to server/public/"
+          ls -la server/public/
+
+      # ── Build Docker Image (Multi-stage) ──
+      - name: Build Docker image
+        run: |
+          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
+          echo "Building image from server/Dockerfile..."
+          docker build \
+            -t snackynerds:${{ github.sha }} \
+            -t snackynerds:latest \
+            -t $ECR_URL:${{ github.sha }} \
+            -t $ECR_URL:latest \
+            ./server
+
+      # ── Push to ECR ──
+      - name: Push image to ECR
+        run: |
+          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
+          echo "Pushing $ECR_URL:${{ github.sha }}..."
+          docker push $ECR_URL:${{ github.sha }}
+          echo "Pushing $ECR_URL:latest..."
+          docker push $ECR_URL:latest
+          echo "✅ Image pushed to ECR successfully"
+
+  # ──────────────────────────────────────────────────────────
+  # PHASE 3b — Deploy to ECS Fargate
+  # ──────────────────────────────────────────────────────────
+  deploy-ecs:
+    name: "Phase 3b — Deploy to ECS"
+    runs-on: ubuntu-latest
+    needs: [terraform, docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── AWS Credentials ──
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ── Get ECR URL from AWS directly ──
+      - name: Get ECR Repository URL
+        id: ecr-info
+        run: |
+          ECR_URL=$(aws ecr describe-repositories \
+            --repository-names ${{ env.ECR_REPO_NAME }} \
+            --region ${{ secrets.AWS_REGION }} \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+          echo "ecr_url=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "ECR URL: $ECR_URL"
+
+      # ── Update ECS Task Definition with new image ──
+      - name: Register new task definition
+        id: task-def
+        run: |
+          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
+          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
+          SERVICE=${{ env.ECS_SERVICE_NAME }}
+
+          echo "📦 Getting current task definition..."
+          TASK_DEF_ARN=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE \
+            --query 'services[0].taskDefinition' \
+            --output text)
+
+          echo "📝 Fetching task definition details..."
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition $TASK_DEF_ARN \
+            --query 'taskDefinition')
+
+          echo "🔄 Updating image to $ECR_URL:${{ github.sha }}..."
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq \
+            --arg IMAGE "$ECR_URL:${{ github.sha }}" \
+            '.containerDefinitions[0].image = $IMAGE |
+             del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+
+          echo "📤 Registering new task definition revision..."
+          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+
+          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
+          echo "✅ New task definition: $NEW_TASK_DEF_ARN"
+
+      # ── Deploy to ECS ──
+      - name: Update ECS service
+        run: |
+          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
+          SERVICE=${{ env.ECS_SERVICE_NAME }}
+          TASK_DEF=${{ steps.task-def.outputs.task_def_arn }}
+
+          echo "🚀 Deploying new task definition to ECS..."
+          aws ecs update-service \
+            --cluster $CLUSTER \
+            --service $SERVICE \
+            --task-definition $TASK_DEF \
+            --force-new-deployment \
+            --no-cli-pager
+
+      # ── Wait for Stability ──
+      - name: Wait for service stability
+        run: |
+          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
+          SERVICE=${{ env.ECS_SERVICE_NAME }}
+
+          echo "⏳ Waiting for service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster $CLUSTER \
+            --services $SERVICE
+          echo "✅ Service is stable"
+
+      # ── Verify Deployment ──
+      - name: Verify service is running
+        run: |
+          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
+          SERVICE=${{ env.ECS_SERVICE_NAME }}
+
+          echo "🔍 Checking service status..."
+          RUNNING=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE \
+            --query 'services[0].runningCount' \
+            --output text)
+
+          DESIRED=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SERVICE \
+            --query 'services[0].desiredCount' \
+            --output text)
+
+          echo "Running: $RUNNING / Desired: $DESIRED"
+
+          if [ "$RUNNING" -eq "$DESIRED" ]; then
+            echo "✅ Deployment successful! Service is running."
+          else
+            echo "⚠️ Warning: Running count ($RUNNING) does not match desired ($DESIRED)"
+            exit 1
+          fi
+
+          # ── Get public IP ──
+          TASK_ARN=$(aws ecs list-tasks \
+            --cluster $CLUSTER \
+            --service-name $SERVICE \
+            --query 'taskArns[0]' \
+            --output text)
+
+          if [ "$TASK_ARN" != "None" ] && [ -n "$TASK_ARN" ]; then
+            ENI_ID=$(aws ecs describe-tasks \
+              --cluster $CLUSTER \
+              --tasks $TASK_ARN \
+              --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
+              --output text)
+
+            PUBLIC_IP=$(aws ec2 describe-network-interfaces \
+              --network-interface-ids $ENI_ID \
+              --query 'NetworkInterfaces[0].Association.PublicIp' \
+              --output text 2>/dev/null || echo "N/A")
+
+            echo ""
+            echo "════════════════════════════════════════════"
+            echo "  🍿 SnackyNerds API is live (ECS)!"
+            echo "  🌐 http://$PUBLIC_IP:5001/api/health"
+            echo "════════════════════════════════════════════"
+          fi
+
+  # ──────────────────────────────────────────────────────────
+  # PHASE 4 — Deploy to EKS (Kubernetes)
+  # Runs in PARALLEL with deploy-ecs (same image, different target)
+  # ──────────────────────────────────────────────────────────
+  deploy-eks:
+    name: "Phase 4 — Deploy to EKS"
+    runs-on: ubuntu-latest
+    needs: [terraform, docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── AWS Credentials ──
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # ── Configure kubectl ──
+      - name: Configure cluster access
+        run: |
+          aws eks update-kubeconfig \
+            --name snackynerds-eks \
+            --region ${{ secrets.AWS_REGION }}
+          echo "✅ kubectl configured"
+          kubectl version --client
+
+      # ── Get ECR URL ──
+      - name: Get ECR Repository URL
+        id: ecr-info
+        run: |
+          ECR_URL=$(aws ecr describe-repositories \
+            --repository-names ${{ env.ECR_REPO_NAME }} \
+            --region ${{ secrets.AWS_REGION }} \
+            --query 'repositories[0].repositoryUri' \
+            --output text)
+          echo "ecr_url=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "ECR URL: $ECR_URL"
+
+      # ── Set image in deployment manifest ──
+      - name: Update deployment image
+        run: |
+          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
+          IMAGE="$ECR_URL:${{ github.sha }}"
+          echo "🔄 Setting image to: $IMAGE"
+          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE|g" infra/k8s/deployment.yaml
+          echo "--- Updated deployment.yaml ---"
+          cat infra/k8s/deployment.yaml
+
+      # ── Deploy Kubernetes manifests ──
+      - name: Deploy to Kubernetes
+        run: |
+          echo "📦 Applying Kubernetes manifests..."
+          kubectl apply -f infra/k8s/namespace.yaml
+          kubectl apply -f infra/k8s/deployment.yaml
+          kubectl apply -f infra/k8s/service.yaml
+          echo "✅ Manifests applied"
+
+      # ── Wait for rollout ──
+      - name: Wait for deployment rollout
+        run: |
+          echo "⏳ Waiting for deployment to stabilize..."
+          kubectl rollout status deployment/snackynerds-api \
+            -n snackynerds \
+            --timeout=180s
+          echo "✅ Deployment is stable"
+
+      # ── Verify deployment ──
+      - name: Verify EKS deployment
+        run: |
+          echo "🔍 Checking pods..."
+          kubectl get pods -n snackynerds -o wide
+
           echo ""
-          echo "👉 AWS Academy restrictions prevent Apply in CI"
+          echo "🔍 Checking service..."
+          kubectl get svc -n snackynerds
+
+          echo ""
+          echo "🔍 Checking replicas..."
+          READY=$(kubectl get deployment snackynerds-api -n snackynerds \
+            -o jsonpath='{.status.readyReplicas}')
+          DESIRED=$(kubectl get deployment snackynerds-api -n snackynerds \
+            -o jsonpath='{.spec.replicas}')
+          echo "Ready: $READY / Desired: $DESIRED"
+
+          if [ "$READY" = "$DESIRED" ]; then
+            echo "✅ All replicas are running!"
+          else
+            echo "⚠️ Not all replicas are ready"
+            exit 1
+          fi
+
+          # ── Get LoadBalancer URL ──
+          echo ""
+          echo "⏳ Waiting for LoadBalancer DNS..."
+          for i in $(seq 1 12); do
+            LB_HOST=$(kubectl get svc snackynerds-api -n snackynerds \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+            if [ -n "$LB_HOST" ]; then
+              break
+            fi
+            echo "   Waiting... ($i/12)"
+            sleep 10
+          done
+
+          if [ -n "$LB_HOST" ]; then
+            echo ""
+            echo "════════════════════════════════════════════"
+            echo "  🍿 SnackyNerds API is live (EKS)!"
+            echo "  🌐 http://$LB_HOST:5001/api/health"
+            echo "════════════════════════════════════════════"
+          else
+            echo "⚠️ LoadBalancer DNS not ready yet — check AWS Console"
+          fi

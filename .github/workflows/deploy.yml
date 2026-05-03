@@ -426,7 +426,7 @@ jobs:
 
             echo ""
             echo "════════════════════════════════════════════"
-            echo "  🍿 SnackyNerds API is live (ECS)!"
+            echo "  🌿 ArtisanHub API is live (ECS)!"
             echo "  🌐 http://$PUBLIC_IP:5001/api/health"
             echo "════════════════════════════════════════════"
           fi

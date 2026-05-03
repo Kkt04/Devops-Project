@@ -7,6 +7,13 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # S3 backend — bucket name injected at `terraform init` time via -backend-config
+  # so the account ID doesn't need to be hardcoded here.
+  backend "s3" {
+    key    = "terraform/state/terraform.tfstate"
+    region = "us-east-1"
+  }
 }
 
 provider "aws" {

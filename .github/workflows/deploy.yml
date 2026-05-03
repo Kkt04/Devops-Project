@@ -124,13 +124,70 @@ jobs:
         with:
           terraform_wrapper: false
 
-      # ── Terraform Init ──
+      # ── Terraform Init (with S3 backend for persistent state) ──
       - name: Terraform Init
-        run: terraform init
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          terraform init \
+            -backend-config="bucket=artisan-hub-artifacts-${ACCOUNT_ID}" \
+            -reconfigure
 
       # ── Terraform Validate ──
       - name: Terraform Validate
         run: terraform validate
+
+      # ── Import existing resources (idempotent — safe on fresh envs) ──
+      # These adopt resources already in AWS so Terraform doesn't try to
+      # recreate them and fail with AlreadyExists errors.
+      - name: Import existing AWS resources into state
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION="${{ secrets.AWS_REGION }}"
+
+          echo "🔍 Importing existing resources (errors here are safe — resource may not exist yet)..."
+
+          # S3 artifacts bucket
+          terraform import aws_s3_bucket.artifacts \
+            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
+
+          # S3 versioning (sub-resource)
+          terraform import aws_s3_bucket_versioning.artifacts \
+            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
+
+          # S3 encryption (sub-resource)
+          terraform import aws_s3_bucket_server_side_encryption_configuration.artifacts \
+            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
+
+          # S3 public access block (sub-resource)
+          terraform import aws_s3_bucket_public_access_block.artifacts \
+            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
+
+          # Security group
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=artisan-hub-ecs-tasks" \
+            --query 'SecurityGroups[0].GroupId' \
+            --output text 2>/dev/null || echo "")
+          if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
+            terraform import aws_security_group.ecs_tasks $SG_ID 2>/dev/null || true
+          fi
+
+          # ECR repository
+          terraform import aws_ecr_repository.app \
+            artisan-hub-backend 2>/dev/null || true
+
+          # ECR lifecycle policy
+          terraform import aws_ecr_lifecycle_policy.app \
+            artisan-hub-backend 2>/dev/null || true
+
+          # ECS cluster
+          terraform import aws_ecs_cluster.main \
+            artisan-hub-cluster 2>/dev/null || true
+
+          # CloudWatch log group
+          terraform import aws_cloudwatch_log_group.ecs \
+            /ecs/artisan-hub 2>/dev/null || true
+
+          echo "✅ Import step complete"
 
       # ── Terraform Plan ──
       - name: Terraform Plan

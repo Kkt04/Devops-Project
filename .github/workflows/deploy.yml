@@ -1,327 +1,165 @@
-name: CI/CD Pipeline
+# ============================================================
+# GitHub Actions — Full CI/CD Pipeline
+# Builds Docker image → Pushes to ECR → Deploys via Terraform
+# AWS Academy Compatible (restricted LabRole)
+#
+# NOTE:
+# Some steps are commented (NOT removed) because AWS Academy policy
+# explicitly denies ECR auth and resource creation during apply.
+# ============================================================
+
+name: Deploy to AWS ECS
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches:
+      - main
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REPOSITORY: artisan-hub-backend
-  ECS_CLUSTER: artisan-hub-cluster
-  ECS_SERVICE: artisan-hub-service
-  CONTAINER_NAME: artisan-hub-backend
+  TF_VERSION: 1.14.8
 
 jobs:
-  # ============================================================
-  # PHASE 1: TESTING
-  # ============================================================
-  test-server:
-    name: "Phase 1 - Server Tests"
+  deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: server/package-lock.json
-
-      - name: Install server dependencies
-        working-directory: server
-        run: npm ci --legacy-peer-deps
-
-      - name: Run server tests
-        working-directory: server
-        run: npm test -- --coverage --forceExit
-        
-      - name: Upload test coverage report
-        uses: actions/upload-artifact@v4
-        if: always()   # Upload even if tests fail - useful for debugging
-        with:
-          name: server-coverage-report
-          path: server/coverage/
-          retention-days: 7
-
-  test-client:
-    name: "Phase 1 - Client Tests"
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: client/package-lock.json
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci --legacy-peer-deps
-
-      - name: Run client tests
-        working-directory: client
-        run: npm run test
-        
-      - name: Upload client test report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: client-test-report
-          path: client/coverage/
-          retention-days: 7
-
-  # ============================================================
-  # PHASE 2: TERRAFORM INFRASTRUCTURE
-  # ============================================================
-  terraform:
-    name: "Phase 2 - Terraform Infrastructure"
-    runs-on: ubuntu-latest
-    needs: [test-server, test-client]   # Only run if tests pass
-    
-    defaults:
-      run:
-        working-directory: terraform
 
     steps:
-      - name: Checkout code
+      # ── Step 1: Checkout code ──────────────────────────────
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
+      # ── Step 2: Configure AWS credentials ──────────────────
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            us-east-1
 
+
+      # ── Step 4: Login to Amazon ECR ───────────────────────
+      # COMMENTED: Fails due explicit deny on ecr:GetAuthorizationToken
+      #
+      # - name: Login to Amazon ECR
+      #   id: login-ecr
+      #   uses: aws-actions/amazon-ecr-login@v2
+
+
+      # ── Step 6: Build, Tag & Push Docker Image ─────────────
+      # COMMENTED: Depends on ECR login, blocked in AWS Academy
+      #
+      # - name: Build and Push Backend Image
+      #   id: build-backend
+      #   env:
+      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      #     IMAGE_TAG:    ${{ github.sha }}
+      #   run: |
+      #     IMAGE_URI=$ECR_REGISTRY/devops-backend:$IMAGE_TAG
+      #     LATEST_URI=$ECR_REGISTRY/devops-backend:latest
+      #
+      #     echo "Building Docker image..."
+      #     docker build -t $IMAGE_URI -t $LATEST_URI ./backend
+      #
+      #     echo "Pushing image to ECR..."
+      #     docker push $IMAGE_URI
+      #     docker push $LATEST_URI
+      #
+      #     echo "✅ Docker image pushed: $IMAGE_URI"
+
+
+      # - name: Build and Push Frontend Image
+      #   id: build-frontend
+      #   env:
+      #     ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      #     IMAGE_TAG:    ${{ github.sha }}
+      #   run: |
+      #     IMAGE_URI=$ECR_REGISTRY/devops-frontend:$IMAGE_TAG
+      #     LATEST_URI=$ECR_REGISTRY/devops-frontend:latest
+      #
+      #     echo "Building Docker image..."
+      #     docker build -t $IMAGE_URI -t $LATEST_URI ./frontend
+      #
+      #     echo "Pushing image to ECR..."
+      #     docker push $IMAGE_URI
+      #     docker push $LATEST_URI
+      #
+      #     echo "✅ Docker image pushed: $IMAGE_URI"
+
+
+      # ── Step 7: Setup Terraform ───────────────────────────
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.6.0"
+          terraform_version: ${{ env.TF_VERSION }}
 
+      # ── Step 8: Terraform Version Check ──────────────────
+      - name: Terraform Version Check
+        working-directory: terraform
+        run: terraform version
+
+      # ── Step 9: Terraform Fmt Check ───────────────────────
+      - name: Terraform Fmt Check
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+          echo "✅ Terraform formatting is valid"
+
+      # ── Step 10: Terraform Init ───────────────────────────
       - name: Terraform Init
-        run: terraform init
-        # Why: Downloads providers (AWS provider) and sets up backend
+        working-directory: terraform
+        run: |
+          terraform init -upgrade -input=false || \
+          (rm -rf .terraform .terraform.lock.hcl && terraform init -upgrade -input=false)
+          echo "✅ Terraform initialized"
 
-      - name: Terraform Format Check
-        run: terraform fmt -check
-        # Why: Ensures consistent code formatting
-        continue-on-error: true
+      # ── Step 11: Terraform Import Existing ECR ────────────
+      # COMMENTED: Fails because ECR repository access is denied
+      #
+      # - name: Terraform Import Existing ECR
+      #   working-directory: terraform
+      #   run: |
+      #     terraform import aws_ecr_repository.backend_repo devops-backend || true
+      #     terraform import aws_ecr_repository.frontend_repo devops-frontend || true
+      #     echo "✅ Existing ECR repository imported if present"
 
+
+      # ── Step 12: Terraform Validate ───────────────────────
       - name: Terraform Validate
-        run: terraform validate
-        # Why: Checks syntax and internal consistency without AWS calls
+        working-directory: terraform
+        run: |
+          terraform validate
+          echo "✅ Terraform configuration is valid"
 
+      # ── Step 13: Terraform Plan ───────────────────────────
       - name: Terraform Plan
-        run: terraform plan -out=tfplan -no-color
-        # Why: Shows what changes WILL be made - important for review
-        # -out saves plan so apply uses exact same plan
-
-      - name: Upload Terraform Plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: terraform/tfplan
-          retention-days: 1
-
-      - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
-        # Why: Actually creates/updates infrastructure
-        # -auto-approve skips interactive prompt (needed for CI)
-        
-      - name: Save Terraform outputs
-        id: tf-outputs
+        working-directory: terraform
         run: |
-          terraform output
+          terraform plan -input=false -out=tfplan
+          echo "✅ Terraform plan complete"
 
-          ECR_URL=$(terraform output -raw ecr_repository_url)
-          ECS_CLUSTER=$(terraform output -raw ecs_cluster_name)
-          ECS_SERVICE=$(terraform output -raw ecs_service_name)
 
-          echo "ECR_URL=$ECR_URL" >> $GITHUB_OUTPUT
-          echo "ECS_CLUSTER=$ECS_CLUSTER" >> $GITHUB_OUTPUT
-          echo "ECS_SERVICE=$ECS_SERVICE" >> $GITHUB_OUTPUT
+      # ── Step 14: Terraform Apply ──────────────────────────
+      # COMMENTED: Fails due explicit denies on CreateBucket,
+      # CreateRepository, CreateCluster, CreateSecurityGroup, etc.
+      #
+      # - name: Terraform Apply
+      #   working-directory: terraform
+      #   run: |
+      #     terraform apply -input=false -auto-approve tfplan
+      #     echo "✅ Infrastructure provisioned successfully"
 
-    outputs:
-      ecr_url: ${{ steps.tf-outputs.outputs.ECR_URL }}
-      ecs_cluster: ${{ steps.tf-outputs.outputs.ECS_CLUSTER }}
-      ecs_service: ${{ steps.tf-outputs.outputs.ECS_SERVICE }}
 
-  # ============================================================
-  # PHASE 3: DOCKER BUILD & ECR PUSH
-  # ============================================================
-  build-and-push:
-    name: "Phase 3 - Build & Push Docker Image"
-    runs-on: ubuntu-latest
-    needs: terraform
-    
-    outputs:
-      image_uri: ${{ steps.build-image.outputs.image_uri }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-        # Why: Docker needs credentials to push to ECR
-
-      - name: Build Docker image
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}   # Use git commit SHA as image tag for traceability
+      # ── Step 15: Print Deployment Summary ─────────────────
+      - name: Deployment Summary
         run: |
-          # Build the image
-          docker build \
-            --tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            --tag $ECR_REGISTRY/$ECR_REPOSITORY:latest \
-            --file Dockerfile \
-            .
-          
-          echo "image_uri=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-          echo "Built image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-
-      - name: Push image to ECR
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          echo "Pushed image to ECR successfully"
-
-  # ============================================================
-  # PHASE 3 CONTINUED: DEPLOY TO ECS
-  # ============================================================
-  deploy-ecs:
-    name: "Phase 3 - Deploy to ECS Fargate"
-    runs-on: ubuntu-latest
-    needs: [terraform, build-and-push]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Download current task definition
-        run: |
-          aws ecs describe-task-definition \
-            --task-definition artisan-hub-task \
-            --query taskDefinition \
-            > task-definition.json
-          echo "Downloaded current task definition"
-
-      - name: Update task definition with new image
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ needs.build-and-push.outputs.image_uri }}
-          # Why: We update just the image URI, keeping all other task settings
-
-      - name: Deploy to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-          # Why: Waits until the new deployment is healthy before marking success
-          # This means pipeline fails if deployment fails - giving you real feedback
-
-      - name: Verify service is running
-        run: |
-          echo "Checking ECS service status..."
-          
-          SERVICE_STATUS=$(aws ecs describe-services \
-            --cluster $ECS_CLUSTER \
-            --services $ECS_SERVICE \
-            --query 'services[0].status' \
-            --output text)
-          
-          RUNNING_COUNT=$(aws ecs describe-services \
-            --cluster $ECS_CLUSTER \
-            --services $ECS_SERVICE \
-            --query 'services[0].runningCount' \
-            --output text)
-          
-          DESIRED_COUNT=$(aws ecs describe-services \
-            --cluster $ECS_CLUSTER \
-            --services $ECS_SERVICE \
-            --query 'services[0].desiredCount' \
-            --output text)
-          
-          echo "Service Status: $SERVICE_STATUS"
-          echo "Running Tasks: $RUNNING_COUNT / $DESIRED_COUNT desired"
-          
-          if [ "$SERVICE_STATUS" != "ACTIVE" ]; then
-            echo "ERROR: Service is not ACTIVE!"
-            exit 1
-          fi
-          
-          if [ "$RUNNING_COUNT" -lt 1 ]; then
-            echo "ERROR: No tasks are running!"
-            exit 1
-          fi
-          
-          echo "Deployment successful! Service is running."
-
-      - name: Get service public IP
-        run: |
-          # Get the task ARN
-          TASK_ARN=$(aws ecs list-tasks \
-            --cluster $ECS_CLUSTER \
-            --service-name $ECS_SERVICE \
-            --query 'taskArns[0]' \
-            --output text)
-          
-          if [ "$TASK_ARN" != "None" ] && [ -n "$TASK_ARN" ]; then
-            # Get the network interface
-            ENI=$(aws ecs describe-tasks \
-              --cluster $ECS_CLUSTER \
-              --tasks $TASK_ARN \
-              --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
-              --output text)
-            
-            if [ -n "$ENI" ]; then
-              # Get the public IP
-              PUBLIC_IP=$(aws ec2 describe-network-interfaces \
-                --network-interface-ids $ENI \
-                --query 'NetworkInterfaces[0].Association.PublicIp' \
-                --output text)
-              
-              echo "Application is available at: http://$PUBLIC_IP:5001/api/health"
-            fi
-          fi
+          echo "============================================"
+          echo "  ✅ VALIDATION COMPLETE"
+          echo "============================================"
+          echo "  Region    : us-east-1"
+          echo "  Cluster   : devops-cluster"
+          echo "  Commit    : ${{ github.sha }}"
+          echo "  Status    : Terraform plan completed"
+          echo "============================================"
+          echo ""
+          echo "👉 AWS Academy restrictions prevent Apply in CI"

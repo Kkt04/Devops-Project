@@ -14,9 +14,22 @@ provider "aws" {
 }
 
 # ======================================================
-# ACCOUNT INFO
+# ACCOUNT INFO & NETWORKING
 # ======================================================
 data "aws_caller_identity" "current" {}
+
+# Use the account's default VPC (no new VPC cost)
+data "aws_vpc" "default" {
+  default = true
+}
+
+# All default subnets in the default VPC
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
 
 # ======================================================
 # S3 ARTIFACT BUCKET
@@ -54,6 +67,35 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+# ======================================================
+# SECURITY GROUP — ECS Tasks
+# ======================================================
+resource "aws_security_group" "ecs_tasks" {
+  name        = "${var.project_name}-ecs-tasks"
+  description = "Allow inbound traffic on app port and all outbound"
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    description = "App port"
+    from_port   = 5001
+    to_port     = 5001
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "${var.project_name}-ecs-tasks"
+    Environment = var.environment
+  }
 }
 
 # ======================================================
@@ -163,6 +205,13 @@ resource "aws_ecs_service" "app" {
   task_definition = aws_ecs_task_definition.app.arn
   desired_count   = 1
   launch_type     = "FARGATE"
+
+  # Required for Fargate: explicit VPC networking
+  network_configuration {
+    subnets          = data.aws_subnets.default.ids
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true
+  }
 
   lifecycle {
     ignore_changes = [desired_count]

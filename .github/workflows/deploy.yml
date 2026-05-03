@@ -1,9 +1,9 @@
 # ──────────────────────────────────────────────────────────
-# SnackyNerds — Unified CI/CD Pipeline
+# ArtisanHub — Unified CI/CD Pipeline
 #
 # Workflow Order (matches rubric):
 #   Push/PR → Run Tests → Terraform Apply → Docker Build & Push
-#   → Deploy to ECS (Phase 3) + Deploy to EKS (Phase 4)
+#   → Deploy to ECS (Phase 3)
 # ──────────────────────────────────────────────────────────
 
 name: CI/CD Pipeline
@@ -16,10 +16,9 @@ on:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REPO_NAME: snackynerds
-  ECS_CLUSTER_NAME: snackynerds-cluster
-  ECS_SERVICE_NAME: snackynerds-service
-  EKS_CLUSTER_NAME: snackynerds-eks
+  ECR_REPO_NAME: artisan-hub-backend
+  ECS_CLUSTER_NAME: artisan-hub-cluster
+  ECS_SERVICE_NAME: artisan-hub-service
 
 # ──────────────────────────────────────────────────────────
 # PHASE 1 — Testing
@@ -104,7 +103,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: infra/terraform
+        working-directory: terraform
 
     steps:
       - name: Checkout code
@@ -202,17 +201,18 @@ jobs:
           echo "✅ Client build copied to server/public/"
           ls -la server/public/
 
-      # ── Build Docker Image (Multi-stage) ──
+      # ── Build Docker Image (Multi-stage, context = repo root) ──
       - name: Build Docker image
         run: |
           ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
-          echo "Building image from server/Dockerfile..."
+          echo "Building image from root Dockerfile..."
           docker build \
-            -t snackynerds:${{ github.sha }} \
-            -t snackynerds:latest \
+            -f Dockerfile \
+            -t artisan-hub:${{ github.sha }} \
+            -t artisan-hub:latest \
             -t $ECR_URL:${{ github.sha }} \
             -t $ECR_URL:latest \
-            ./server
+            .
 
       # ── Push to ECR ──
       - name: Push image to ECR
@@ -376,13 +376,15 @@ jobs:
 
   # ──────────────────────────────────────────────────────────
   # PHASE 4 — Deploy to EKS (Kubernetes)
-  # Runs in PARALLEL with deploy-ecs (same image, different target)
+  # Disabled: Terraform does not provision an EKS cluster.
+  # To enable: add EKS resources to terraform/main.tf and
+  # remove the `if: false` condition below.
   # ──────────────────────────────────────────────────────────
   deploy-eks:
     name: "Phase 4 — Deploy to EKS"
     runs-on: ubuntu-latest
     needs: [terraform, docker-build]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: false  # EKS not provisioned — enable when EKS Terraform is added
 
     steps:
       - name: Checkout code
@@ -401,7 +403,7 @@ jobs:
       - name: Configure cluster access
         run: |
           aws eks update-kubeconfig \
-            --name snackynerds-eks \
+            --name artisan-hub-eks \
             --region ${{ secrets.AWS_REGION }}
           echo "✅ kubectl configured"
           kubectl version --client
@@ -435,14 +437,14 @@ jobs:
           kubectl apply -f infra/k8s/namespace.yaml
           kubectl apply -f infra/k8s/deployment.yaml
           kubectl apply -f infra/k8s/service.yaml
-          echo "✅ Manifests applied"
+          echo "✅ Manifests applied" 
 
       # ── Wait for rollout ──
       - name: Wait for deployment rollout
         run: |
           echo "⏳ Waiting for deployment to stabilize..."
-          kubectl rollout status deployment/snackynerds-api \
-            -n snackynerds \
+          kubectl rollout status deployment/artisan-hub-api \
+            -n artisan-hub \
             --timeout=180s
           echo "✅ Deployment is stable"
 
@@ -450,17 +452,17 @@ jobs:
       - name: Verify EKS deployment
         run: |
           echo "🔍 Checking pods..."
-          kubectl get pods -n snackynerds -o wide
+          kubectl get pods -n artisan-hub -o wide
 
           echo ""
           echo "🔍 Checking service..."
-          kubectl get svc -n snackynerds
+          kubectl get svc -n artisan-hub
 
           echo ""
           echo "🔍 Checking replicas..."
-          READY=$(kubectl get deployment snackynerds-api -n snackynerds \
+          READY=$(kubectl get deployment artisan-hub-api -n artisan-hub \
             -o jsonpath='{.status.readyReplicas}')
-          DESIRED=$(kubectl get deployment snackynerds-api -n snackynerds \
+          DESIRED=$(kubectl get deployment artisan-hub-api -n artisan-hub \
             -o jsonpath='{.spec.replicas}')
           echo "Ready: $READY / Desired: $DESIRED"
 
@@ -475,7 +477,7 @@ jobs:
           echo ""
           echo "⏳ Waiting for LoadBalancer DNS..."
           for i in $(seq 1 12); do
-            LB_HOST=$(kubectl get svc snackynerds-api -n snackynerds \
+            LB_HOST=$(kubectl get svc artisan-hub-api -n artisan-hub \
               -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
             if [ -n "$LB_HOST" ]; then
               break
@@ -487,7 +489,7 @@ jobs:
           if [ -n "$LB_HOST" ]; then
             echo ""
             echo "════════════════════════════════════════════"
-            echo "  🍿 SnackyNerds API is live (EKS)!"
+            echo "  🌿 ArtisanHub API is live (EKS)!"
             echo "  🌐 http://$LB_HOST:5001/api/health"
             echo "════════════════════════════════════════════"
           else

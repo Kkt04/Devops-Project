@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: artisan-hub-api
+  namespace: artisan-hub
+  labels:
+    app: artisan-hub-api
+    environment: production
+spec:
+  type: LoadBalancer
+  selector:
+    app: artisan-hub-api
+  ports:
+    - name: http
+      port: 5001
+      targetPort: 5001
+      protocol: TCP

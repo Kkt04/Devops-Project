@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: artisan-hub
+  labels:
+    app: artisan-hub
+    environment: production

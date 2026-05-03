@@ -1,0 +1,56 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────
+#  ArtisanHub — Docker Compose
+#  Services: backend (Express) + frontend (Vite)
+# ─────────────────────────────────────────────
+
+networks:
+  artisan-net:
+    driver: bridge
+
+services:
+
+  # ── Backend ──────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: artisan-backend
+    restart: unless-stopped
+    networks:
+      - artisan-net
+    ports:
+      - "5001:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5001/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+
+  # ── Frontend ──────────────────────────────────
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: artisan-frontend
+    restart: unless-stopped
+    networks:
+      - artisan-net
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_API_URL=http://localhost:5001
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3

@@ -134,6 +134,14 @@ jobs:
           aws ecs describe-clusters --clusters artisan-hub-production-cluster --region $REGION 2>/dev/null && \
             terraform import aws_ecs_cluster.main artisan-hub-production-cluster 2>/dev/null || true
 
+          # Import ECS service if exists
+          aws ecs describe-services --cluster artisan-hub-production-cluster --services artisan-hub-production-service --region $REGION 2>/dev/null && \
+            terraform import 'aws_ecs_service.backend[0]' artisan-hub-production-service 2>/dev/null || true
+
+          # Import ECS task definition if exists
+          aws ecs describe-task-definition --task-definition artisan-hub-production-task --region $REGION 2>/dev/null && \
+            terraform import 'aws_ecs_task_definition.backend[0]' artisan-hub-production-task 2>/dev/null || true
+
           # Import CloudWatch log group if exists
           aws logs describe-log-groups --log-group-name-prefix "/ecs/artisan-hub-production" --region $REGION 2>/dev/null && \
             terraform import aws_cloudwatch_log_group.ecs "/ecs/artisan-hub-production" 2>/dev/null || true

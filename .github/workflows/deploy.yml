@@ -2,7 +2,7 @@
 # ArtisanHub — CI/CD Pipeline
 # ─────────────────────────────────────────────────────────────
 # Workflow Order:
-#   Push to main → Tests → Terraform → Docker Build & Push
+#   Push/PR → Tests → Terraform → Docker Build & Push
 #   → Deploy to ECS
 # ─────────────────────────────────────────────────────────────
 
@@ -100,67 +100,22 @@ jobs:
         with:
           terraform_version: "1.9.0"
 
+      - name: Clean up existing resources (start fresh)
+        run: |
+          echo "Cleaning up existing ArtisanHub resources..."
+          bash ../scripts/clean.sh || true
+          echo "Cleanup complete"
+
       - name: Terraform Init
         run: terraform init
 
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Import existing AWS resources into state
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION="${{ secrets.AWS_REGION }}"
-
-          echo "Importing existing resources (errors are safe if resource doesn't exist)..."
-
-          # Import S3 bucket if exists
-          aws s3api head-bucket --bucket "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null && \
-            terraform import aws_s3_bucket.artifacts "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
-
-          # Import S3 versioning
-          terraform import aws_s3_bucket_versioning.artifacts_versioning "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
-
-          # Import S3 encryption
-          terraform import aws_s3_bucket_server_side_encryption_configuration.artifacts_encryption "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
-
-          # Import S3 public access block
-          terraform import aws_s3_bucket_public_access_block.artifacts_public_block "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
-
-          # Import ECR repository if exists
-          aws ecr describe-repositories --repository-names artisan-hub-production-backend --region $REGION 2>/dev/null && \
-            terraform import aws_ecr_repository.backend artisan-hub-production-backend 2>/dev/null || true
-
-          # Import ECS cluster if exists
-          aws ecs describe-clusters --clusters artisan-hub-production-cluster --region $REGION 2>/dev/null && \
-            terraform import aws_ecs_cluster.main artisan-hub-production-cluster 2>/dev/null || true
-
-          # Import ECS service if exists
-          aws ecs describe-services --cluster artisan-hub-production-cluster --services artisan-hub-production-service --region $REGION 2>/dev/null && \
-            terraform import 'aws_ecs_service.backend[0]' artisan-hub-production-service 2>/dev/null || true
-
-          # Import ECS task definition if exists
-          aws ecs describe-task-definition --task-definition artisan-hub-production-task --region $REGION 2>/dev/null && \
-            terraform import 'aws_ecs_task_definition.backend[0]' artisan-hub-production-task 2>/dev/null || true
-
-          # Import CloudWatch log group if exists
-          aws logs describe-log-groups --log-group-name-prefix "/ecs/artisan-hub-production" --region $REGION 2>/dev/null && \
-            terraform import aws_cloudwatch_log_group.ecs "/ecs/artisan-hub-production" 2>/dev/null || true
-
-          # Import Security Group if exists
-          SG_ID=$(aws ec2 describe-security-groups \
-            --filters "Name=group-name,Values=artisan-hub-production-ecs-sg" \
-            --region $REGION \
-            --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || echo "")
-          if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
-            terraform import aws_security_group.ecs $SG_ID 2>/dev/null || true
-          fi
-
-          echo "Import step complete"
-
-      - name: Terraform Plan
+      - name: Terraform Plan (infrastructure only)
         run: terraform plan -out=tfplan
 
-      - name: Terraform Apply (Infrastructure only)
+      - name: Terraform Apply (infrastructure only)
         run: terraform apply -auto-approve tfplan
 
       - name: Get Terraform outputs
@@ -168,7 +123,6 @@ jobs:
         run: |
           echo "ecr_url=$(terraform output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
           echo "cluster_name=$(terraform output -raw ecs_cluster_name)" >> $GITHUB_OUTPUT
-          echo "service_name=$(terraform output -raw ecs_service_name)" >> $GITHUB_OUTPUT || echo "service_name=" >> $GITHUB_OUTPUT
           echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
 
       - name: Upload Terraform state
@@ -211,6 +165,11 @@ jobs:
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
 
       - name: Build React client
         run: |
@@ -311,43 +270,51 @@ jobs:
         run: |
           CLUSTER="${{ env.ECS_CLUSTER_NAME }}"
           SERVICE="${{ env.ECS_SERVICE_NAME }}"
+          REGION="${{ secrets.AWS_REGION }}"
 
-          # Wait for task to be running
-          sleep 30
+          echo "Waiting 60s for task to start..."
+          sleep 60
 
-          TASK_ARN=$(aws ecs list-tasks \
-            --cluster $CLUSTER \
-            --service-name $SERVICE \
-            --region ${{ secrets.AWS_REGION }} \
-            --query 'taskArns[0]' \
-            --output text)
-
-          echo "Task ARN: $TASK_ARN"
-
-          if [ "$TASK_ARN" != "None" ] && [ -n "$TASK_ARN" ]; then
-            ENI_ID=$(aws ecs describe-tasks \
+          # Retry getting task ARN up to 5 times
+          for i in 1 2 3 4 5; do
+            TASK_ARN=$(aws ecs list-tasks \
               --cluster $CLUSTER \
-              --tasks $TASK_ARN \
-              --region ${{ secrets.AWS_REGION }} \
-              --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
+              --service-name $SERVICE \
+              --region $REGION \
+              --query 'taskArns[0]' \
               --output text)
-
-            PUBLIC_IP=$(aws ec2 describe-network-interfaces \
-              --network-interface-ids $ENI_ID \
-              --region ${{ secrets.AWS_REGION }} \
-              --query 'NetworkInterfaces[0].Association.PublicIp' \
-              --output text)
-
-            echo "Public IP: $PUBLIC_IP"
-
-            # Wait for app to start
+            if [ "$TASK_ARN" != "None" ] && [ -n "$TASK_ARN" ]; then
+              echo "Task found: $TASK_ARN"
+              break
+            fi
+            echo "Waiting for task to start (attempt $i/5)..."
             sleep 30
+          done
 
-            echo "Verifying health endpoint..."
-            curl -f "http://${PUBLIC_IP}:5001/api/health"
-            echo ""
-            echo "✅ App is live at: http://${PUBLIC_IP}:5001"
-          else
-            echo "⚠️ No running tasks found"
+          if [ "$TASK_ARN" = "None" ] || [ -z "$TASK_ARN" ]; then
+            echo "❌ No running tasks found"
             exit 1
           fi
+
+          ENI_ID=$(aws ecs describe-tasks \
+            --cluster $CLUSTER \
+            --tasks $TASK_ARN \
+            --region $REGION \
+            --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
+            --output text)
+
+          PUBLIC_IP=$(aws ec2 describe-network-interfaces \
+            --network-interface-ids $ENI_ID \
+            --region $REGION \
+            --query 'NetworkInterfaces[0].Association.PublicIp' \
+            --output text)
+
+          echo "Public IP: $PUBLIC_IP"
+
+          # Wait for app to start
+          sleep 30
+
+          echo "Verifying health endpoint..."
+          curl -f "http://${PUBLIC_IP}:5001/api/health"
+          echo ""
+          echo "✅ App is live at: http://${PUBLIC_IP}:5001"

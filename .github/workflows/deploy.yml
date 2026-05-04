@@ -1,28 +1,29 @@
-# ──────────────────────────────────────────────────────────
-# ArtisanHub — Unified CI/CD Pipeline
-#
-# Workflow Order (matches rubric):
-#   Push/PR → Run Tests → Terraform Apply → Docker Build & Push
-#   → Deploy to ECS (Phase 3)
-# ──────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# ArtisanHub — CI/CD Pipeline
+# ─────────────────────────────────────────────────────────────
+# Workflow Order:
+#   Push to main → Tests → Terraform → Docker Build & Push
+#   → Deploy to ECS
+# ─────────────────────────────────────────────────────────────
 
 name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, master, test]
+    branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
-  ECR_REPO_NAME: artisan-hub-backend
-  ECS_CLUSTER_NAME: artisan-hub-cluster
-  ECS_SERVICE_NAME: artisan-hub-service
+  ECR_REPO_NAME: artisan-hub-production-backend
+  ECS_CLUSTER_NAME: artisan-hub-production-cluster
+  ECS_SERVICE_NAME: artisan-hub-production-service
 
-# ──────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 # PHASE 1 — Testing
-# ──────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
 jobs:
   test:
     name: "Phase 1 — Run Tests"
@@ -32,7 +33,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Node.js Setup ──
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -40,48 +40,26 @@ jobs:
           cache: "npm"
           cache-dependency-path: "**/package-lock.json"
 
-      # ── Server Tests (Jest + JUnit Report) ──
       - name: Install server dependencies
         run: |
           cd server
           npm ci
 
-      - name: Run server unit & integration tests
+      - name: Run server tests (Jest)
         run: |
           cd server
           npm test
-        env:
-          JEST_JUNIT_OUTPUT_DIR: ./reports
-          JEST_JUNIT_OUTPUT_NAME: junit.xml
 
-      - name: Upload server test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: server-test-report
-          path: server/reports/junit.xml
-          retention-days: 30
-
-      # ── Client Tests (Vitest + JUnit Report) ──
       - name: Install client dependencies
         run: |
           cd client
           npm ci --legacy-peer-deps
 
-      - name: Run client unit & integration tests
+      - name: Run client tests (Vitest)
         run: |
           cd client
-          npx vitest run --reporter=default --reporter=junit --outputFile=reports/junit.xml
+          npx vitest run
 
-      - name: Upload client test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: client-test-report
-          path: client/reports/junit.xml
-          retention-days: 30
-
-      # ── Client Lint & Build Verification ──
       - name: Lint client
         run: |
           cd client
@@ -92,9 +70,9 @@ jobs:
           cd client
           npm run build
 
-  # ──────────────────────────────────────────────────────────
-  # PHASE 2 — Infrastructure Provisioning (Terraform)
-  # ──────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# PHASE 2 — Infrastructure (Terraform)
+# ─────────────────────────────────────────────────────────────
   terraform:
     name: "Phase 2 — Terraform"
     runs-on: ubuntu-latest
@@ -109,7 +87,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── AWS Credentials ──
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -118,88 +95,40 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # ── Terraform Setup ──
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_wrapper: false
+          terraform_version: "1.9.0"
 
-      # ── Terraform Init (with S3 backend for persistent state) ──
       - name: Terraform Init
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          terraform init \
-            -backend-config="bucket=artisan-hub-artifacts-${ACCOUNT_ID}" \
-            -reconfigure
+        run: terraform init
 
-      # ── Terraform Validate ──
       - name: Terraform Validate
         run: terraform validate
 
-      # ── Import existing resources (idempotent — safe on fresh envs) ──
-      # These adopt resources already in AWS so Terraform doesn't try to
-      # recreate them and fail with AlreadyExists errors.
-      - name: Import existing AWS resources into state
-        run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION="${{ secrets.AWS_REGION }}"
-
-          echo "🔍 Importing existing resources (errors here are safe — resource may not exist yet)..."
-
-          # S3 artifacts bucket
-          terraform import aws_s3_bucket.artifacts \
-            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
-
-          # S3 versioning (sub-resource)
-          terraform import aws_s3_bucket_versioning.artifacts \
-            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
-
-          # S3 encryption (sub-resource)
-          terraform import aws_s3_bucket_server_side_encryption_configuration.artifacts \
-            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
-
-          # S3 public access block (sub-resource)
-          terraform import aws_s3_bucket_public_access_block.artifacts \
-            artisan-hub-artifacts-${ACCOUNT_ID} 2>/dev/null || true
-
-          # Security group
-          SG_ID=$(aws ec2 describe-security-groups \
-            --filters "Name=group-name,Values=artisan-hub-ecs-tasks" \
-            --query 'SecurityGroups[0].GroupId' \
-            --output text 2>/dev/null || echo "")
-          if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
-            terraform import aws_security_group.ecs_tasks $SG_ID 2>/dev/null || true
-          fi
-
-          # ECR repository
-          terraform import aws_ecr_repository.app \
-            artisan-hub-backend 2>/dev/null || true
-
-          # ECR lifecycle policy
-          terraform import aws_ecr_lifecycle_policy.app \
-            artisan-hub-backend 2>/dev/null || true
-
-          # ECS cluster
-          terraform import aws_ecs_cluster.main \
-            artisan-hub-cluster 2>/dev/null || true
-
-          # CloudWatch log group
-          terraform import aws_cloudwatch_log_group.ecs \
-            /ecs/artisan-hub 2>/dev/null || true
-
-          echo "✅ Import step complete"
-
-      # ── Terraform Plan ──
       - name: Terraform Plan
         run: terraform plan -out=tfplan
 
-      # ── Terraform Apply ──
-      - name: Terraform Apply
+      - name: Terraform Apply (Infrastructure only)
         run: terraform apply -auto-approve tfplan
 
-  # ──────────────────────────────────────────────────────────
-  # PHASE 3 — Container Build & ECR Push
-  # ──────────────────────────────────────────────────────────
+      - name: Get Terraform outputs
+        id: tf-outputs
+        run: |
+          echo "ecr_url=$(terraform output -raw ecr_repository_url)" >> $GITHUB_OUTPUT
+          echo "cluster_name=$(terraform output -raw ecs_cluster_name)" >> $GITHUB_OUTPUT
+          echo "service_name=$(terraform output -raw ecs_service_name)" >> $GITHUB_OUTPUT || echo "service_name=" >> $GITHUB_OUTPUT
+          echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
+
+      - name: Upload Terraform state
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state
+          path: terraform/terraform.tfstate
+
+# ─────────────────────────────────────────────────────────────
+# PHASE 3 — Docker Build & Push to ECR
+# ─────────────────────────────────────────────────────────────
   docker-build:
     name: "Phase 3 — Docker Build & Push"
     runs-on: ubuntu-latest
@@ -210,7 +139,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── AWS Credentials ──
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -219,7 +147,6 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # ── Get ECR URL from AWS directly ──
       - name: Get ECR Repository URL
         id: ecr-info
         run: |
@@ -231,24 +158,14 @@ jobs:
           echo "ecr_url=$ECR_URL" >> $GITHUB_OUTPUT
           echo "ECR URL: $ECR_URL"
 
-      # ── Login to ECR ──
       - name: Login to Amazon ECR
-        id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
-
-      # ── Build Client (React) for embedding in server ──
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: "client/package-lock.json"
 
       - name: Build React client
         run: |
           cd client
           npm ci --legacy-peer-deps
-          VITE_API_URL="" npm run build
+          npm run build
           echo "✅ Client built successfully"
 
       - name: Copy client build to server
@@ -256,14 +173,12 @@ jobs:
           mkdir -p server/public
           cp -r client/dist/* server/public/
           echo "✅ Client build copied to server/public/"
-          ls -la server/public/
 
-      # ── Build Docker Image (Multi-stage, context = repo root) ──
       - name: Build Docker image
         run: |
-          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
-          echo "Building image from root Dockerfile..."
+          ECR_URL="${{ steps.ecr-info.outputs.ecr_url }}"
           docker build \
+            --platform linux/amd64 \
             -f Dockerfile \
             -t artisan-hub:${{ github.sha }} \
             -t artisan-hub:latest \
@@ -271,21 +186,18 @@ jobs:
             -t $ECR_URL:latest \
             .
 
-      # ── Push to ECR ──
       - name: Push image to ECR
         run: |
-          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
-          echo "Pushing $ECR_URL:${{ github.sha }}..."
+          ECR_URL="${{ steps.ecr-info.outputs.ecr_url }}"
           docker push $ECR_URL:${{ github.sha }}
-          echo "Pushing $ECR_URL:latest..."
           docker push $ECR_URL:latest
           echo "✅ Image pushed to ECR successfully"
 
-  # ──────────────────────────────────────────────────────────
-  # PHASE 3b — Deploy to ECS Fargate
-  # ──────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# PHASE 4 — Deploy to ECS Fargate
+# ─────────────────────────────────────────────────────────────
   deploy-ecs:
-    name: "Phase 3b — Deploy to ECS"
+    name: "Phase 4 — Deploy to ECS"
     runs-on: ubuntu-latest
     needs: [terraform, docker-build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -294,7 +206,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── AWS Credentials ──
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -303,7 +214,21 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # ── Get ECR URL from AWS directly ──
+      - name: Download Terraform state
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-state
+          path: terraform/
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
+
       - name: Get ECR Repository URL
         id: ecr-info
         run: |
@@ -315,240 +240,63 @@ jobs:
           echo "ecr_url=$ECR_URL" >> $GITHUB_OUTPUT
           echo "ECR URL: $ECR_URL"
 
-      # ── Update ECS Task Definition with new image ──
-      - name: Register new task definition
-        id: task-def
+      - name: Deploy ECS service (Terraform)
+        working-directory: terraform
         run: |
-          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
-          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
-          SERVICE=${{ env.ECS_SERVICE_NAME }}
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          terraform apply -auto-approve \
+            -var="deploy_ecs_service=true" \
+            -var="container_image=${{ steps.ecr-info.outputs.ecr_url }}:${{ github.sha }}" \
+            -var="ecs_execution_role_arn=arn:aws:iam::${ACCOUNT_ID}:role/LabRole"
 
-          echo "📦 Getting current task definition..."
-          TASK_DEF_ARN=$(aws ecs describe-services \
-            --cluster $CLUSTER \
-            --services $SERVICE \
-            --query 'services[0].taskDefinition' \
-            --output text)
-
-          echo "📝 Fetching task definition details..."
-          TASK_DEF=$(aws ecs describe-task-definition \
-            --task-definition $TASK_DEF_ARN \
-            --query 'taskDefinition')
-
-          echo "🔄 Updating image to $ECR_URL:${{ github.sha }}..."
-          NEW_TASK_DEF=$(echo $TASK_DEF | jq \
-            --arg IMAGE "$ECR_URL:${{ github.sha }}" \
-            '.containerDefinitions[0].image = $IMAGE |
-             del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
-
-          echo "📤 Registering new task definition revision..."
-          NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
-            --cli-input-json "$NEW_TASK_DEF" \
-            --query 'taskDefinition.taskDefinitionArn' \
-            --output text)
-
-          echo "task_def_arn=$NEW_TASK_DEF_ARN" >> $GITHUB_OUTPUT
-          echo "✅ New task definition: $NEW_TASK_DEF_ARN"
-
-      # ── Deploy to ECS ──
-      - name: Update ECS service
+      - name: Wait for ECS service to stabilize
         run: |
-          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
-          SERVICE=${{ env.ECS_SERVICE_NAME }}
-          TASK_DEF=${{ steps.task-def.outputs.task_def_arn }}
-
-          echo "🚀 Deploying new task definition to ECS..."
-          aws ecs update-service \
-            --cluster $CLUSTER \
-            --service $SERVICE \
-            --task-definition $TASK_DEF \
-            --force-new-deployment \
-            --no-cli-pager
-
-      # ── Wait for Stability ──
-      - name: Wait for service stability
-        run: |
-          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
-          SERVICE=${{ env.ECS_SERVICE_NAME }}
-
-          echo "⏳ Waiting for service to stabilize..."
           aws ecs wait services-stable \
-            --cluster $CLUSTER \
-            --services $SERVICE
-          echo "✅ Service is stable"
+            --cluster ${{ env.ECS_CLUSTER_NAME }} \
+            --services ${{ env.ECS_SERVICE_NAME }} \
+            --region ${{ secrets.AWS_REGION }}
 
-      # ── Verify Deployment ──
-      - name: Verify service is running
+      - name: Get public IP and verify health
         run: |
-          CLUSTER=${{ env.ECS_CLUSTER_NAME }}
-          SERVICE=${{ env.ECS_SERVICE_NAME }}
+          CLUSTER="${{ env.ECS_CLUSTER_NAME }}"
+          SERVICE="${{ env.ECS_SERVICE_NAME }}"
 
-          echo "🔍 Checking service status..."
-          RUNNING=$(aws ecs describe-services \
-            --cluster $CLUSTER \
-            --services $SERVICE \
-            --query 'services[0].runningCount' \
-            --output text)
+          # Wait for task to be running
+          sleep 30
 
-          DESIRED=$(aws ecs describe-services \
-            --cluster $CLUSTER \
-            --services $SERVICE \
-            --query 'services[0].desiredCount' \
-            --output text)
-
-          echo "Running: $RUNNING / Desired: $DESIRED"
-
-          if [ "$RUNNING" -eq "$DESIRED" ]; then
-            echo "✅ Deployment successful! Service is running."
-          else
-            echo "⚠️ Warning: Running count ($RUNNING) does not match desired ($DESIRED)"
-            exit 1
-          fi
-
-          # ── Get public IP ──
           TASK_ARN=$(aws ecs list-tasks \
             --cluster $CLUSTER \
             --service-name $SERVICE \
+            --region ${{ secrets.AWS_REGION }} \
             --query 'taskArns[0]' \
             --output text)
+
+          echo "Task ARN: $TASK_ARN"
 
           if [ "$TASK_ARN" != "None" ] && [ -n "$TASK_ARN" ]; then
             ENI_ID=$(aws ecs describe-tasks \
               --cluster $CLUSTER \
               --tasks $TASK_ARN \
+              --region ${{ secrets.AWS_REGION }} \
               --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' \
               --output text)
 
             PUBLIC_IP=$(aws ec2 describe-network-interfaces \
               --network-interface-ids $ENI_ID \
+              --region ${{ secrets.AWS_REGION }} \
               --query 'NetworkInterfaces[0].Association.PublicIp' \
-              --output text 2>/dev/null || echo "N/A")
+              --output text)
 
+            echo "Public IP: $PUBLIC_IP"
+
+            # Wait for app to start
+            sleep 30
+
+            echo "Verifying health endpoint..."
+            curl -f "http://${PUBLIC_IP}:5001/api/health"
             echo ""
-            echo "════════════════════════════════════════════"
-            echo "  🌿 ArtisanHub API is live (ECS)!"
-            echo "  🌐 http://$PUBLIC_IP:5001/api/health"
-            echo "════════════════════════════════════════════"
-          fi
-
-  # ──────────────────────────────────────────────────────────
-  # PHASE 4 — Deploy to EKS (Kubernetes)
-  # Disabled: Terraform does not provision an EKS cluster.
-  # To enable: add EKS resources to terraform/main.tf and
-  # remove the `if: false` condition below.
-  # ──────────────────────────────────────────────────────────
-  deploy-eks:
-    name: "Phase 4 — Deploy to EKS"
-    runs-on: ubuntu-latest
-    needs: [terraform, docker-build]
-    if: false  # EKS not provisioned — enable when EKS Terraform is added
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # ── AWS Credentials ──
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      # ── Configure kubectl ──
-      - name: Configure cluster access
-        run: |
-          aws eks update-kubeconfig \
-            --name artisan-hub-eks \
-            --region ${{ secrets.AWS_REGION }}
-          echo "✅ kubectl configured"
-          kubectl version --client
-
-      # ── Get ECR URL ──
-      - name: Get ECR Repository URL
-        id: ecr-info
-        run: |
-          ECR_URL=$(aws ecr describe-repositories \
-            --repository-names ${{ env.ECR_REPO_NAME }} \
-            --region ${{ secrets.AWS_REGION }} \
-            --query 'repositories[0].repositoryUri' \
-            --output text)
-          echo "ecr_url=$ECR_URL" >> $GITHUB_OUTPUT
-          echo "ECR URL: $ECR_URL"
-
-      # ── Set image in deployment manifest ──
-      - name: Update deployment image
-        run: |
-          ECR_URL=${{ steps.ecr-info.outputs.ecr_url }}
-          IMAGE="$ECR_URL:${{ github.sha }}"
-          echo "🔄 Setting image to: $IMAGE"
-          sed -i "s|IMAGE_PLACEHOLDER|$IMAGE|g" infra/k8s/deployment.yaml
-          echo "--- Updated deployment.yaml ---"
-          cat infra/k8s/deployment.yaml
-
-      # ── Deploy Kubernetes manifests ──
-      - name: Deploy to Kubernetes
-        run: |
-          echo "📦 Applying Kubernetes manifests..."
-          kubectl apply -f infra/k8s/namespace.yaml
-          kubectl apply -f infra/k8s/deployment.yaml
-          kubectl apply -f infra/k8s/service.yaml
-          echo "✅ Manifests applied" 
-
-      # ── Wait for rollout ──
-      - name: Wait for deployment rollout
-        run: |
-          echo "⏳ Waiting for deployment to stabilize..."
-          kubectl rollout status deployment/artisan-hub-api \
-            -n artisan-hub \
-            --timeout=180s
-          echo "✅ Deployment is stable"
-
-      # ── Verify deployment ──
-      - name: Verify EKS deployment
-        run: |
-          echo "🔍 Checking pods..."
-          kubectl get pods -n artisan-hub -o wide
-
-          echo ""
-          echo "🔍 Checking service..."
-          kubectl get svc -n artisan-hub
-
-          echo ""
-          echo "🔍 Checking replicas..."
-          READY=$(kubectl get deployment artisan-hub-api -n artisan-hub \
-            -o jsonpath='{.status.readyReplicas}')
-          DESIRED=$(kubectl get deployment artisan-hub-api -n artisan-hub \
-            -o jsonpath='{.spec.replicas}')
-          echo "Ready: $READY / Desired: $DESIRED"
-
-          if [ "$READY" = "$DESIRED" ]; then
-            echo "✅ All replicas are running!"
+            echo "✅ App is live at: http://${PUBLIC_IP}:5001"
           else
-            echo "⚠️ Not all replicas are ready"
+            echo "⚠️ No running tasks found"
             exit 1
-          fi
-
-          # ── Get LoadBalancer URL ──
-          echo ""
-          echo "⏳ Waiting for LoadBalancer DNS..."
-          for i in $(seq 1 12); do
-            LB_HOST=$(kubectl get svc artisan-hub-api -n artisan-hub \
-              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-            if [ -n "$LB_HOST" ]; then
-              break
-            fi
-            echo "   Waiting... ($i/12)"
-            sleep 10
-          done
-
-          if [ -n "$LB_HOST" ]; then
-            echo ""
-            echo "════════════════════════════════════════════"
-            echo "  🌿 ArtisanHub API is live (EKS)!"
-            echo "  🌐 http://$LB_HOST:5001/api/health"
-            echo "════════════════════════════════════════════"
-          else
-            echo "⚠️ LoadBalancer DNS not ready yet — check AWS Console"
           fi

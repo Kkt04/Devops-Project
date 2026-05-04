@@ -1,36 +1,12 @@
-terraform {
-  required_version = ">= 1.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-
-  # S3 backend — bucket name injected at `terraform init` time via -backend-config
-  # so the account ID doesn't need to be hardcoded here.
-  backend "s3" {
-    key    = "terraform/state/terraform.tfstate"
-    region = "us-east-1"
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
-# ======================================================
-# ACCOUNT INFO & NETWORKING
-# ======================================================
+# ─────────────────────────────────────────────────────────────
+# Data Sources
+# ─────────────────────────────────────────────────────────────
 data "aws_caller_identity" "current" {}
 
-# Use the account's default VPC (no new VPC cost)
 data "aws_vpc" "default" {
   default = true
 }
 
-# All default subnets in the default VPC
 data "aws_subnets" "default" {
   filter {
     name   = "vpc-id"
@@ -38,28 +14,41 @@ data "aws_subnets" "default" {
   }
 }
 
-# ======================================================
-# S3 ARTIFACT BUCKET
-# ======================================================
+# ─────────────────────────────────────────────────────────────
+# Locals
+# ─────────────────────────────────────────────────────────────
+locals {
+  resource_prefix = "${var.project_name}-${var.environment}"
+
+  create_ecs_service = (
+    var.deploy_ecs_service &&
+    var.container_image != "" &&
+    var.ecs_execution_role_arn != ""
+  )
+}
+
+# ─────────────────────────────────────────────────────────────
+# S3 Bucket — unique name, versioning, encryption, no public access
+# ─────────────────────────────────────────────────────────────
 resource "aws_s3_bucket" "artifacts" {
-  bucket = "${var.project_name}-artifacts-${data.aws_caller_identity.current.account_id}"
+  bucket        = "${local.resource_prefix}-artifacts-${data.aws_caller_identity.current.account_id}"
+  force_destroy = true
 
   tags = {
-    Name        = "${var.project_name}-artifacts"
-    Environment = var.environment
+    Name      = "${local.resource_prefix}-artifacts"
+    ManagedBy = "terraform"
   }
 }
 
-resource "aws_s3_bucket_versioning" "artifacts" {
+resource "aws_s3_bucket_versioning" "artifacts_versioning" {
   bucket = aws_s3_bucket.artifacts.id
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
+resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts_encryption" {
   bucket = aws_s3_bucket.artifacts.id
-
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -67,21 +56,67 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "artifacts" {
-  bucket = aws_s3_bucket.artifacts.id
-
+resource "aws_s3_bucket_public_access_block" "artifacts_public_block" {
+  bucket                  = aws_s3_bucket.artifacts.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
 
-# ======================================================
-# SECURITY GROUP — ECS Tasks
-# ======================================================
-resource "aws_security_group" "ecs_tasks" {
-  name        = "${var.project_name}-ecs-tasks"
-  description = "Allow inbound traffic on app port and all outbound"
+# ─────────────────────────────────────────────────────────────
+# ECR Repository
+# ─────────────────────────────────────────────────────────────
+resource "aws_ecr_repository" "backend" {
+  name                 = "${local.resource_prefix}-backend"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name      = "${local.resource_prefix}-backend"
+    ManagedBy = "terraform"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# ECS Cluster
+# ─────────────────────────────────────────────────────────────
+resource "aws_ecs_cluster" "main" {
+  name = "${local.resource_prefix}-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  tags = {
+    Name      = "${local.resource_prefix}-cluster"
+    ManagedBy = "terraform"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# CloudWatch Log Group
+# ─────────────────────────────────────────────────────────────
+resource "aws_cloudwatch_log_group" "ecs" {
+  name              = "/ecs/${local.resource_prefix}"
+  retention_in_days = 7
+
+  tags = {
+    Name      = "/ecs/${local.resource_prefix}"
+    ManagedBy = "terraform"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# Security Group
+# ─────────────────────────────────────────────────────────────
+resource "aws_security_group" "ecs" {
+  name        = "${local.resource_prefix}-ecs-sg"
+  description = "Allow traffic to ECS tasks"
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
@@ -100,127 +135,78 @@ resource "aws_security_group" "ecs_tasks" {
   }
 
   tags = {
-    Name        = "${var.project_name}-ecs-tasks"
-    Environment = var.environment
+    Name      = "${local.resource_prefix}-ecs-sg"
+    ManagedBy = "terraform"
   }
 }
 
-# ======================================================
-# ECR REPOSITORY
-# ======================================================
-resource "aws_ecr_repository" "app" {
-  name = "${var.project_name}-backend"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Name        = "${var.project_name}-backend"
-    Environment = var.environment
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "app" {
-  repository = aws_ecr_repository.app.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 10 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
-      }
-      action = {
-        type = "expire"
-      }
-    }]
-  })
-}
-
-# ======================================================
-# ECS CLUSTER
-# ======================================================
-resource "aws_ecs_cluster" "main" {
-  name = "${var.project_name}-cluster"
-
-  setting {
-    name  = "containerInsights"
-    value = "enabled"
-  }
-}
-
-
-
-# ======================================================
-# CLOUDWATCH LOGS
-# ======================================================
-resource "aws_cloudwatch_log_group" "ecs" {
-  name              = "/ecs/${var.project_name}"
-  retention_in_days = 7
-}
-
-# ======================================================
-# ECS TASK DEFINITION
-# ======================================================
-resource "aws_ecs_task_definition" "app" {
-  family                   = "${var.project_name}-task"
-  requires_compatibilities = ["FARGATE"]
+# ─────────────────────────────────────────────────────────────
+# ECS Task Definition (conditional — only when deploy_ecs_service=true)
+# ─────────────────────────────────────────────────────────────
+resource "aws_ecs_task_definition" "backend" {
+  count                    = local.create_ecs_service ? 1 : 0
+  family                   = "${local.resource_prefix}-task"
   network_mode             = "awsvpc"
-  cpu    = "256"
-  memory = "512"
-
-  execution_role_arn = "arn:aws:iam::896673846525:role/LabRole"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = var.ecs_execution_role_arn
 
   container_definitions = jsonencode([{
-    name  = "${var.project_name}-backend"
-    image = "${aws_ecr_repository.app.repository_url}:latest"
-
+    name      = "artisan-hub-server"
+    image     = var.container_image
     essential = true
-
     portMappings = [{
       containerPort = 5001
+      hostPort      = 5001
       protocol      = "tcp"
     }]
-
-    environment = [
-      {
-        name  = "NODE_ENV"
-        value = "production"
-      }
-    ]
-
+    environment = [{
+      name  = "PORT"
+      value = "5001"
+    }]
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        awslogs-group         = aws_cloudwatch_log_group.ecs.name
-        awslogs-region        = var.aws_region
-        awslogs-stream-prefix = "ecs"
+        "awslogs-group"         = "/ecs/${local.resource_prefix}"
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "ecs"
       }
     }
+    healthCheck = {
+      command     = ["CMD-SHELL", "wget -qO- http://localhost:5001/api/health || exit 1"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 20
+    }
   }])
+
+  tags = {
+    Name      = "${local.resource_prefix}-task"
+    ManagedBy = "terraform"
+  }
 }
 
-# ======================================================
-# ECS SERVICE (NO VPC / NO SG)
-# ======================================================
-resource "aws_ecs_service" "app" {
-  name            = "${var.project_name}-service"
+# ─────────────────────────────────────────────────────────────
+# ECS Service (conditional — only when deploy_ecs_service=true)
+# ─────────────────────────────────────────────────────────────
+resource "aws_ecs_service" "backend" {
+  count           = local.create_ecs_service ? 1 : 0
+  name            = "${local.resource_prefix}-service"
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app.arn
+  task_definition = aws_ecs_task_definition.backend[0].arn
   desired_count   = 1
   launch_type     = "FARGATE"
 
-  # Required for Fargate: explicit VPC networking
   network_configuration {
     subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.ecs_tasks.id]
+    security_groups  = [aws_security_group.ecs.id]
     assign_public_ip = true
   }
 
-  lifecycle {
-    ignore_changes = [desired_count]
+  tags = {
+    Name      = "${local.resource_prefix}-service"
+    ManagedBy = "terraform"
   }
 }

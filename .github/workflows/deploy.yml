@@ -106,6 +106,49 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Import existing AWS resources into state
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION="${{ secrets.AWS_REGION }}"
+
+          echo "Importing existing resources (errors are safe if resource doesn't exist)..."
+
+          # Import S3 bucket if exists
+          aws s3api head-bucket --bucket "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null && \
+            terraform import aws_s3_bucket.artifacts "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
+
+          # Import S3 versioning
+          terraform import aws_s3_bucket_versioning.artifacts_versioning "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
+
+          # Import S3 encryption
+          terraform import aws_s3_bucket_server_side_encryption_configuration.artifacts_encryption "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
+
+          # Import S3 public access block
+          terraform import aws_s3_bucket_public_access_block.artifacts_public_block "artisan-hub-production-artifacts-${ACCOUNT_ID}" 2>/dev/null || true
+
+          # Import ECR repository if exists
+          aws ecr describe-repositories --repository-names artisan-hub-production-backend --region $REGION 2>/dev/null && \
+            terraform import aws_ecr_repository.backend artisan-hub-production-backend 2>/dev/null || true
+
+          # Import ECS cluster if exists
+          aws ecs describe-clusters --clusters artisan-hub-production-cluster --region $REGION 2>/dev/null && \
+            terraform import aws_ecs_cluster.main artisan-hub-production-cluster 2>/dev/null || true
+
+          # Import CloudWatch log group if exists
+          aws logs describe-log-groups --log-group-name-prefix "/ecs/artisan-hub-production" --region $REGION 2>/dev/null && \
+            terraform import aws_cloudwatch_log_group.ecs "/ecs/artisan-hub-production" 2>/dev/null || true
+
+          # Import Security Group if exists
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters "Name=group-name,Values=artisan-hub-production-ecs-sg" \
+            --region $REGION \
+            --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null || echo "")
+          if [ -n "$SG_ID" ] && [ "$SG_ID" != "None" ]; then
+            terraform import aws_security_group.ecs $SG_ID 2>/dev/null || true
+          fi
+
+          echo "Import step complete"
+
       - name: Terraform Plan
         run: terraform plan -out=tfplan
 

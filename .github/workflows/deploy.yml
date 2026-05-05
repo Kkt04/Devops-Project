@@ -100,12 +100,6 @@ jobs:
         with:
           terraform_version: "1.9.0"
 
-      - name: Clean up existing resources (start fresh)
-        run: |
-          echo "Cleaning up existing ArtisanHub resources..."
-          bash ../scripts/clean.sh || true
-          echo "Cleanup complete"
-
       - name: Terraform Init
         run: terraform init
 

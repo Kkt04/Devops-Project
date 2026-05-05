@@ -77,15 +77,20 @@ for REPO in $REPOS; do
   fi
 done
 
-# 5. Empty and delete S3 buckets
+# 5. Empty and delete S3 buckets (preserve Terraform state bucket)
 echo ""
 echo "→ Emptying S3 buckets..."
 BUCKETS=$(aws s3api list-buckets \
   --query 'Buckets[?starts_with(Name, `artisan-hub`)].Name' \
   --output text 2>/dev/null || echo "")
+TF_STATE_BUCKET="artisan-hub-production-artifacts-896673846525"
 
 for BUCKET in $BUCKETS; do
   if [ -n "$BUCKET" ] && [ "$BUCKET" != "None" ]; then
+    if [ "$BUCKET" = "$TF_STATE_BUCKET" ]; then
+      echo "  Skipping Terraform state bucket: $BUCKET"
+      continue
+    fi
     echo "  Emptying: $BUCKET"
     aws s3 rm "s3://$BUCKET" --recursive --region "$REGION" > /dev/null 2>&1 || true
     echo "  Deleting: $BUCKET"

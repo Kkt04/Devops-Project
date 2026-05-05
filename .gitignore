@@ -19,6 +19,14 @@ terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.*
 
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+crash.log
+*.tfvars
+
 # Build artifacts
 server/dist/
 client/dist/

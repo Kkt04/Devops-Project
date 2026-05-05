@@ -112,11 +112,8 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Terraform Plan (infrastructure only)
-        run: terraform plan -out=tfplan
-
       - name: Terraform Apply (infrastructure only)
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve
 
       - name: Get Terraform outputs
         id: tf-outputs

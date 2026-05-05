@@ -125,12 +125,6 @@ jobs:
           echo "cluster_name=$(terraform output -raw ecs_cluster_name)" >> $GITHUB_OUTPUT
           echo "s3_bucket=$(terraform output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
 
-      - name: Upload Terraform state
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-state
-          path: terraform/terraform.tfstate
-
 # ─────────────────────────────────────────────────────────────
 # PHASE 3 — Docker Build & Push to ECR
 # ─────────────────────────────────────────────────────────────
@@ -223,12 +217,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Download Terraform state
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-state
-          path: terraform/
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

@@ -1,5 +1,6 @@
 # 🌿 ArtisanHub — Handcrafted Goods Marketplace
 
+
 > Full-stack e-commerce platform built with React + Node.js, deployed on AWS ECS Fargate via a fully automated CI/CD pipeline.
 
 [![CI/CD Pipeline](https://github.com/Kkt04/Devops-Project/actions/workflows/deploy.yml/badge.svg)](https://github.com/Kkt04/Devops-Project/actions/workflows/deploy.yml)

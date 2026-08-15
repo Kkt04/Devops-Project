@@ -4,7 +4,6 @@
 > Full-stack e-commerce platform built with React + Node.js, deployed on AWS ECS Fargate via a fully automated CI/CD pipeline.
 
 
----
 
 ## 📋 Table of Contents
 
